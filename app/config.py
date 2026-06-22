@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     google_service_account_json: Optional[str] = Field(
         None, alias="GOOGLE_SERVICE_ACCOUNT_JSON"
     )
+    # MOST ROBUST option for Docker/compose env files: base64 of the JSON.
+    # base64 has no backslashes/quotes/newlines, so no parser can mangle the
+    # private key's "\n" sequences. Preferred over the raw JSON when set.
+    google_service_account_json_b64: Optional[str] = Field(
+        None, alias="GOOGLE_SERVICE_ACCOUNT_JSON_B64"
+    )
 
     # ---- App ----
     app_base_url: str = Field(..., alias="APP_BASE_URL")
@@ -76,9 +82,16 @@ class Settings(BaseSettings):
     def service_account_info(self) -> dict:
         """Return the parsed service-account credentials dict.
 
-        Prefers the JSON env var (handy on hosts like Render) and falls back to
-        the file path for local development.
+        Order of preference:
+          1. base64-encoded JSON (safest through Docker/compose env files)
+          2. raw JSON string
+          3. JSON file on disk (local development)
         """
+        if self.google_service_account_json_b64:
+            import base64
+
+            raw = base64.b64decode(self.google_service_account_json_b64)
+            return json.loads(raw)
         if self.google_service_account_json:
             return json.loads(self.google_service_account_json)
         path = self.google_service_account_file
