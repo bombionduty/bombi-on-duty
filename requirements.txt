@@ -3,6 +3,8 @@
 
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
+# Required by FastAPI for multipart form uploads (staff photo/screenshot uploads)
+python-multipart==0.0.20
 python-telegram-bot==21.9
 APScheduler==3.11.0
 pydantic==2.10.3
