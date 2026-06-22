@@ -129,8 +129,9 @@ function wireProof(it) {
   if (galBtn && fileInput) {
     galBtn.onclick = () => fileInput.click();
     fileInput.onchange = () => {
-      if (fileInput.files[0]) uploadProof(it, fileInput.files[0],
-        it.type === "Live Camera Photo" ? "Gallery Fallback" : "Live Camera");
+      const f = fileInput.files[0];
+      fileInput.value = "";  // reset so the SAME file can be re-picked / retried
+      if (f) uploadProof(it, f, "Gallery Fallback");
     };
   }
   const saveBtn = document.querySelector(`[data-savetext="${id}"]`);
@@ -180,15 +181,16 @@ async function uploadProof(it, fileOrBlob, captureSource) {
   fd.append("task_item_id", it.task_item_id);
   fd.append("capture_source", captureSource);
   fd.append("file", fileOrBlob, (fileOrBlob.name || "photo.jpg"));
-  setProofState(it, "Uploading…");
+  setProofState(it, `<span class="muted">⏳ Uploading… keep the app open for a few seconds.</span>`);
   try {
     const r = await api(`/api/task/${STATE.taskId}/upload`, { method: "POST", form: fd });
     it.completed = true;
-    showProofDone(it, { thumb_url: r.thumb_url, metadata_result: r.metadata_result,
-                        possible_duplicate: r.possible_duplicate });
+    showProofDone(it, r);
   } catch (e) {
-    setProofState(it, "");
-    showError(e.message);
+    it.completed = false;
+    setProofState(it,
+      `<span class="pill bad">Upload failed</span> <span class="muted">${esc(e.message || "tap the button to try again")}</span>`);
+    toast("Upload failed: " + (e.message || "please try again"));
   }
   refreshSubmit();
 }
@@ -197,11 +199,16 @@ function showProofDone(it, ev) {
   const card = document.getElementById(`card_${it.task_item_id}`);
   if (card) {
     const pill = card.querySelector(".pill");
-    if (pill) { pill.className = "pill ok"; pill.textContent = "Received"; }
+    if (pill) { pill.className = "pill ok"; pill.textContent = "Received ✓"; }
   }
   let extra = ev.metadata_result ? `<span class="muted"> • ${esc(ev.metadata_result)}</span>` : "";
   if (ev.possible_duplicate) extra += ` <span class="pill bad">possible duplicate</span>`;
-  setProofState(it, `<div class="row"><img class="thumb" src="${evidenceUrl(ev.thumb_url)}"/>${extra}</div>`);
+  // Always show a clear "Received" confirmation; the thumbnail is a bonus that
+  // hides itself if it can't load (so it never looks like the upload vanished).
+  const url = ev.thumb_url ? evidenceUrl(ev.thumb_url) : "";
+  setProofState(it,
+    `<div class="row"><span class="pill ok">✓ Received</span>${extra}</div>` +
+    (url ? `<img class="thumb" style="margin-top:8px" src="${url}" onerror="this.style.display='none'"/>` : ""));
 }
 
 function setProofState(it, html) {

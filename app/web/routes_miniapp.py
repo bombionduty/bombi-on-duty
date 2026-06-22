@@ -128,14 +128,18 @@ async def upload_proof(
 
     data = await _read_upload(file)
     submitter = caller.staff or {"Telegram User ID": caller.tg_id}
-    ev = evidence_service.process_and_store(
-        task=task, task_item=item, data=data,
-        filename=file.filename or "upload.jpg",
-        mime_type=file.content_type or "image/jpeg",
-        capture_source=capture_source,
-        submitted_by=submitter,
-        submitted_by_role=caller.role,
-    )
+    try:
+        ev = evidence_service.process_and_store(
+            task=task, task_item=item, data=data,
+            filename=file.filename or "upload.jpg",
+            mime_type=file.content_type or "image/jpeg",
+            capture_source=capture_source,
+            submitted_by=submitter,
+            submitted_by_role=caller.role,
+        )
+    except Exception as e:  # surface a readable error instead of an opaque 500
+        log.exception("Evidence upload failed for task %s", task_id)
+        raise HTTPException(502, f"Could not save the image: {type(e).__name__}. Please try again.")
     task_repo.update_item(task_item_id, {
         "Completed": True, "Completed At": clock.iso(clock.now()),
         "Response": ev["Evidence ID"],
