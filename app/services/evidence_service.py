@@ -66,22 +66,25 @@ def _exif_datetime(data: bytes) -> datetime | None:
         return None
 
 
-_MAX_DIM = 1600  # downscale longest side to this before processing/upload
+_MAX_DIM = 1280       # downscale longest side; plenty for review, small files
+_JPEG_QUALITY = 72    # good readability at a fraction of the size
 
 
 def _downscale_bytes(data: bytes) -> bytes:
-    """Shrink large phone photos so hashing + Drive upload are fast on a small
-    server. Screenshots/photos stay perfectly readable at 1600px."""
+    """Shrink + compress phone photos/screenshots so they're fast to upload and
+    cheap to store. Always re-encodes to JPEG (even if already small) to strip
+    bloat; stays perfectly readable for evidence review."""
     img = _open_image(data)
     if img is None:
         return data
-    if max(img.size) <= _MAX_DIM:
-        return data
     img = img.convert("RGB")
-    img.thumbnail((_MAX_DIM, _MAX_DIM))
+    if max(img.size) > _MAX_DIM:
+        img.thumbnail((_MAX_DIM, _MAX_DIM))
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=85)
-    return out.getvalue()
+    img.save(out, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+    compressed = out.getvalue()
+    # Never make it bigger than the original.
+    return compressed if len(compressed) < len(data) else data
 
 
 def add_footer(data: bytes, checklist_type: str, staff_name: str) -> bytes:
@@ -107,7 +110,7 @@ def add_footer(data: bytes, checklist_type: str, staff_name: str) -> bytes:
     draw.rectangle([0, y0, img.width, img.height], fill=(0, 0, 0))
     draw.text((pad, y0 + pad), label, fill=(255, 255, 255), font=font)
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=85)
+    img.save(out, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
     return out.getvalue()
 
 

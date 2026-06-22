@@ -88,7 +88,7 @@ async def _create_and_post(d, checklist_type, timing, sched) -> dict | None:
 
     # Post the single group card with the deep-link button.
     role_label = "opener" if responsible == "opener" else "closer"
-    text = messages.group_card(task, role_label)
+    text = messages.group_card(with_mention(task), role_label)
     # The button deep-links by Task ID. Access is still strictly controlled
     # server-side by validated Telegram initData (only the assignee or admin),
     # so a guessable id is safe — and it lets us re-attach the button anytime.
@@ -147,6 +147,26 @@ def recompute_evidence_status(task_id: str) -> str:
 
 
 # -------------------------------------------------------------- group card
+def with_mention(task: dict) -> dict:
+    """Attach a tappable assignee mention (@username, else a name link that
+    pings the user) so staff get notified in the group card / alerts."""
+    import html as _html
+
+    task = dict(task)
+    sid = str(task.get("Assigned Staff ID") or "")
+    s = staff_repo.get_by_staff_id(sid) if sid else None
+    uname = str((s or {}).get("Telegram Username") or "").lstrip("@")
+    name = task.get("Assigned Staff Name") or "staff"
+    tgid = task.get("Assigned Telegram User ID")
+    if uname:
+        task["_assignee_mention"] = f"@{uname}"
+    elif tgid:
+        task["_assignee_mention"] = f'<a href="tg://user?id={tgid}">{_html.escape(str(name))}</a>'
+    else:
+        task["_assignee_mention"] = _html.escape(str(name))
+    return task
+
+
 def is_openable(task: dict) -> bool:
     """True while the assigned staff can still open + submit the checklist.
 
@@ -170,7 +190,7 @@ async def refresh_group_card(task_id: str) -> None:
     task = task_repo.get(task_id)
     if not task or not task.get("Initial Message ID"):
         return
-    task = dict(task)
+    task = with_mention(task)
     task["_missing_text"] = ", ".join(missing_items(task_id))
     responsible = constants.CHECK_RESPONSIBLE[task["Checklist Type"]]
     role_label = "opener" if responsible == "opener" else "closer"

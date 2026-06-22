@@ -38,6 +38,11 @@ def _uid(update: Update) -> int:
     return update.effective_user.id
 
 
+def esc_name(s) -> str:
+    import html
+    return html.escape(str(s)) if s is not None else ""
+
+
 def _is_admin(update: Update) -> bool:
     return staff_repo.is_admin(_uid(update))
 
@@ -51,19 +56,30 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = _uid(update)
     staff_repo.mark_private_started(uid)
     if staff_repo.is_admin(uid):
-        await update.message.reply_text(
-            "Welcome, Admin. Tap below to open Admin Controls.",
+        await update.message.reply_html(
+            "👋 Welcome, Admin! Tap below to open Admin Controls.\n\n"
+            f"🆔 Your Telegram ID: <code>{uid}</code>",
             reply_markup=keyboards.admin_controls_button(),
         )
     else:
-        role = staff_repo.role_of(uid)
         who = staff_repo.get_by_telegram_id(uid)
-        name = who.get("Staff Name") if who else "there"
-        await update.message.reply_text(
-            f"Hi {name}! You're connected to Berry Bomb Daily Ops. "
-            "You'll get your checklists in the staff group. "
-            "Use /note to add a note or /issue to flag a problem."
-        )
+        username = update.effective_user.username
+        uname_line = f"\n🔗 Username: @{username}" if username else ""
+        if who:
+            await update.message.reply_html(
+                f"👋 Hi {esc_name(who.get('Staff Name'))}! You're connected to "
+                "Berry Bomb Daily Ops. 📋\n\nYou'll get your checklists in the "
+                "staff group. Tap <b>/mytask</b> anytime to reopen your current "
+                "checklist, <b>/note</b> to add a note, or <b>/issue</b> to flag a problem.\n\n"
+                f"🆔 Your Telegram ID: <code>{uid}</code>"
+            )
+        else:
+            # Unknown user — give them their ID to hand to the admin.
+            await update.message.reply_html(
+                "👋 Hi! To be added to Berry Bomb Daily Ops, send your admin "
+                "this ID so they can register you:\n\n"
+                f"🆔 <code>{uid}</code>{uname_line}"
+            )
 
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:

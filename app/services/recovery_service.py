@@ -147,7 +147,7 @@ async def _notify_resolved(task: dict, recovered_by_name: str) -> None:
     if oic and task.get("OIC Alert Message ID"):
         await notify.edit_message(
             oic["Telegram User ID"], int(task["OIC Alert Message ID"]),
-            messages.oic_resolved(task, recovered_by_name),
+            messages.oic_resolved(task_service.with_mention(task), recovered_by_name),
         )
     # Short admin notification (spec section 19 + 28).
     await notify.send_message(

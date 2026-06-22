@@ -68,7 +68,8 @@ async def escalate_if_due(task: dict) -> None:
         return
     missing = task_service.missing_items(task["Task ID"])
     sent = await notify.send_message(
-        oic["Telegram User ID"], messages.oic_alert(task, missing),
+        oic["Telegram User ID"],
+        messages.oic_alert(task_service.with_mention(task), missing, after_cutoff=False),
         reply_markup=keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=False),
     )
     if sent:
@@ -103,7 +104,7 @@ async def cutoff_if_due(task: dict) -> None:
               "Task", task["Task ID"], original_staff_id=task.get("Assigned Staff ID", ""),
               new_value=", ".join(missing))
 
-    fresh = dict(task_repo.get(task["Task ID"]))
+    fresh = task_service.with_mention(task_repo.get(task["Task ID"]))
     fresh["_missing_text"] = ", ".join(missing)
     await task_service.refresh_group_card(task["Task ID"])
 
@@ -112,14 +113,16 @@ async def cutoff_if_due(task: dict) -> None:
     if tg:
         await notify.send_message(
             tg,
-            f"<b>{task['Checklist Type']} cutoff reached.</b>\n\n"
-            f"Missing at cutoff:\n" + ("\n".join(f"• {m}" for m in missing) or "• —")
-            + "\n\nYou can still submit — it will be recorded as completed late.",
+            f"🔴 <b>{task['Checklist Type']} cutoff reached.</b>\n\n"
+            f"Missing at cutoff:\n" + ("\n".join(f"   ⚠️ {m}" for m in missing) or "   ⚠️ —")
+            + "\n\n👉 You can still submit — it'll be recorded as <b>completed late</b>. "
+            "Tap /mytask to finish it.",
         )
     oic = staff_repo.current_oic()
     if oic and oic.get("Telegram User ID"):
         sent = await notify.send_message(
-            oic["Telegram User ID"], messages.oic_alert(fresh, missing),
+            oic["Telegram User ID"],
+            messages.oic_alert(fresh, missing, after_cutoff=True),
             reply_markup=keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=True),
         )
         if sent:

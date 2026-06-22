@@ -82,17 +82,25 @@ const PAGE_FN = {
     let h = `<h1>Staff</h1>`;
     if (d.duplicates.length) h += `<div id="error" style="display:block">Duplicate active Telegram IDs: ${d.duplicates.join(", ")}</div>`;
     d.staff.forEach(s => {
+      const id = esc(s["Staff ID"]);
       h += `<div class="card"><div class="row"><strong>${esc(s["Staff Name"])}</strong>
-        <span class="pill ${isTrue(s.Active)?"ok":"warn"}">${isTrue(s.Active)?"Active":"Inactive"}</span></div>
-        <div class="muted">${esc(s.Role)} • TG ${esc(s["Telegram User ID"])} • Bot started: ${isTrue(s["Private Bot Started"])?"yes":"no"}</div>
-        <button class="ghost" onclick="assignOIC('${esc(s["Staff ID"])}')">Make Store OIC</button>
-        ${isTrue(s.Active)?`<button class="ghost" onclick="deactivate('${esc(s["Staff ID"])}')">Set Inactive</button>`:""}</div>`;
+        <span class="pill ${isTrue(s.Active)?"ok":"warn"}">${esc(s.Role)} · ${isTrue(s.Active)?"Active":"Inactive"}</span></div>
+        <div class="muted">Bot started: ${isTrue(s["Private Bot Started"])?"yes ✅":"no ⚠️"}</div>
+        <label>Name</label><input id="en_${id}" value="${esc(s["Staff Name"])}"/>
+        <label>Telegram User ID</label><input id="et_${id}" inputmode="numeric" value="${esc(s["Telegram User ID"])}"/>
+        <label>Username (for @tagging, optional)</label><input id="eu_${id}" value="${esc(s["Telegram Username"])}" placeholder="without the @"/>
+        <button onclick="saveStaff('${id}')">💾 Save Changes</button>
+        <button class="ghost" onclick="assignOIC('${id}')">Make Store OIC</button>
+        ${isTrue(s.Active)?`<button class="ghost" onclick="deactivate('${id}')">Set Inactive</button>`
+                          :`<button class="ghost" onclick="reactivate('${id}')">Set Active</button>`}</div>`;
     });
-    h += `<div class="card"><h2>Add staff</h2>
+    h += `<div class="card"><h2>➕ Add staff</h2>
       <label>Name</label><input id="ns_name"/>
-      <label>Telegram User ID</label><input id="ns_tg" inputmode="numeric"/>
+      <label>Telegram User ID (they get this from /start)</label><input id="ns_tg" inputmode="numeric"/>
+      <label>Username (optional, without @)</label><input id="ns_user"/>
       <label>Role</label><select id="ns_role"><option>Staff</option><option>Store OIC</option></select>
-      <button onclick="addStaff()">Add</button></div>`;
+      <button onclick="addStaff()">Add Staff</button>
+      <p class="muted">Tip: ask each staff to message the bot <b>/start</b> — it replies with their Telegram ID to paste here.</p></div>`;
     app.innerHTML = h;
   },
 
@@ -225,9 +233,19 @@ async function markClosed(date) {
 }
 async function addStaff() {
   await api(`/api/admin/staff`, { method: "POST", body: { action: "add",
-    name: val("ns_name"), telegram_user_id: val("ns_tg"), role: val("ns_role") } });
+    name: val("ns_name"), telegram_user_id: val("ns_tg"),
+    username: val("ns_user"), role: val("ns_role") } });
   go("staff");
 }
+async function saveStaff(id) {
+  await api(`/api/admin/staff`, { method:"POST", body:{ action:"update", staff_id:id, changes:{
+    "Staff Name": val("en_"+id),
+    "Telegram User ID": val("et_"+id),
+    "Telegram Username": val("eu_"+id).replace(/^@/, "")
+  }}});
+  toast("Saved ✅"); go("staff");
+}
+async function reactivate(id) { await api(`/api/admin/staff`, { method:"POST", body:{action:"update", staff_id:id, changes:{"Active":"TRUE","Date Deactivated":""}}}); go("staff"); }
 async function deactivate(id) { await api(`/api/admin/staff`, { method:"POST", body:{action:"deactivate", staff_id:id}}); go("staff"); }
 async function assignOIC(id) { await api(`/api/admin/staff`, { method:"POST", body:{action:"assign_oic", staff_id:id}}); toast("OIC assigned"); go("staff"); }
 async function archiveItem(id) { await api(`/api/admin/checklists`, { method:"POST", body:{action:"archive", item_id:id}}); go("checklists"); }
