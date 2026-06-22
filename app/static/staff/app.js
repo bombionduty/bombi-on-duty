@@ -23,6 +23,11 @@ async function boot() {
       STATE.mode = "recovery";
       STATE.taskId = param.slice("recovery_".length);
       await loadRecovery();
+    } else if (param.startsWith("TASK-")) {
+      const data = await api(`/api/task/${encodeURIComponent(param)}`);
+      STATE.payload = data;
+      STATE.taskId = data.task_id;
+      renderTask();
     } else if (param) {
       const data = await api(`/api/task/by-token/${encodeURIComponent(param)}`);
       STATE.payload = data;

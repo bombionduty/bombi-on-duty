@@ -66,6 +66,24 @@ def _exif_datetime(data: bytes) -> datetime | None:
         return None
 
 
+_MAX_DIM = 1600  # downscale longest side to this before processing/upload
+
+
+def _downscale_bytes(data: bytes) -> bytes:
+    """Shrink large phone photos so hashing + Drive upload are fast on a small
+    server. Screenshots/photos stay perfectly readable at 1600px."""
+    img = _open_image(data)
+    if img is None:
+        return data
+    if max(img.size) <= _MAX_DIM:
+        return data
+    img = img.convert("RGB")
+    img.thumbnail((_MAX_DIM, _MAX_DIM))
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=85)
+    return out.getvalue()
+
+
 def add_footer(data: bytes, checklist_type: str, staff_name: str) -> bytes:
     """Burn a footer like 'Closing Check • June 22, 2026 • 11:43 PM • Allyssa'."""
     img = _open_image(data)
@@ -144,10 +162,10 @@ def process_and_store(
     operating_date = clock.parse_date(str(task["Date"]))
     item_type = str(task_item.get("Item Type"))
 
-    # Footer only for live camera photos.
-    stored_bytes = data
+    # Downscale first (fast hashing + small upload), then footer for live photos.
+    stored_bytes = _downscale_bytes(data)
     if item_type == constants.ITEM_LIVE_PHOTO and capture_source == constants.CAP_LIVE:
-        stored_bytes = add_footer(data, str(task["Checklist Type"]),
+        stored_bytes = add_footer(stored_bytes, str(task["Checklist Type"]),
                                   str(task["Assigned Staff Name"]))
 
     img = _open_image(stored_bytes)

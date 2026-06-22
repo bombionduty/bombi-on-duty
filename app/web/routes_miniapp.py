@@ -63,6 +63,21 @@ async def get_task(token: str, caller: Caller = Depends(current_caller)):
     return submission_service.build_payload(task, caller.tg_id)
 
 
+@router.get("/task/{task_id}")
+async def get_task_by_id(task_id: str, caller: Caller = Depends(current_caller)):
+    """Open a checklist by Task ID (used by the group button + /mytask).
+
+    Authorised purely by validated initData: only the assignee or admin passes.
+    """
+    task = task_repo.get(task_id)
+    try:
+        task = submission_service.authorize_open(task, caller.tg_id)
+    except submission_service.AuthError as e:
+        raise HTTPException(403, e.message)
+    await submission_service.mark_started(task)
+    return submission_service.build_payload(task, caller.tg_id)
+
+
 @router.post("/task/{task_id}/text")
 async def save_text(task_id: str, payload: dict, caller: Caller = Depends(current_caller)):
     task = task_repo.get(task_id)

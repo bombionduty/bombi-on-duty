@@ -89,9 +89,12 @@ async def _create_and_post(d, checklist_type, timing, sched) -> dict | None:
     # Post the single group card with the deep-link button.
     role_label = "opener" if responsible == "opener" else "closer"
     text = messages.group_card(task, role_label)
+    # The button deep-links by Task ID. Access is still strictly controlled
+    # server-side by validated Telegram initData (only the assignee or admin),
+    # so a guessable id is safe — and it lets us re-attach the button anytime.
     sent = await notify.send_message(
         get_settings().staff_group_chat_id, text,
-        reply_markup=keyboards.open_checklist_button(token),
+        reply_markup=keyboards.open_checklist_button(task["Task ID"]),
     )
     if sent:
         task_repo.update(task["Task ID"], {"Initial Message ID": sent.message_id})
@@ -144,6 +147,25 @@ def recompute_evidence_status(task_id: str) -> str:
 
 
 # -------------------------------------------------------------- group card
+def is_openable(task: dict) -> bool:
+    """True while the assigned staff can still open + submit the checklist.
+
+    Stays openable through 'Pending' and 'Not Submitted' (so staff can complete
+    LATE — spec section 18). Only closes once actually submitted, recovered by
+    OIC, resolved by admin, or it's a closed day.
+    """
+    if task.get("Original Submission Status") in (
+        constants.SUB_ON_TIME, constants.SUB_LATE, constants.SUB_CLOSED
+    ):
+        return False
+    if task.get("Resolution Status") in (
+        constants.RES_RECOVERED_OIC, constants.RES_RESOLVED_ADMIN,
+        constants.RES_CLOSED_NO_RECOVERY,
+    ):
+        return False
+    return True
+
+
 async def refresh_group_card(task_id: str) -> None:
     task = task_repo.get(task_id)
     if not task or not task.get("Initial Message ID"):
@@ -152,7 +174,11 @@ async def refresh_group_card(task_id: str) -> None:
     task["_missing_text"] = ", ".join(missing_items(task_id))
     responsible = constants.CHECK_RESPONSIBLE[task["Checklist Type"]]
     role_label = "opener" if responsible == "opener" else "closer"
+    # Keep the Open Checklist button while the task can still be completed, so a
+    # staff member who closed the Mini App can always get back in.
+    markup = keyboards.open_checklist_button(task_id) if is_openable(task) else None
     await notify.edit_message(
         task["Staff Group Chat ID"], int(task["Initial Message ID"]),
         messages.group_card(task, role_label),
+        reply_markup=markup,
     )

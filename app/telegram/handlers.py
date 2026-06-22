@@ -95,6 +95,26 @@ async def cmd_note(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Noted. Added to today's ops notes.")
 
 
+async def cmd_mytask(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Re-open the staff member's current checklist(s) if they closed the app."""
+    uid = _uid(update)
+    found = False
+    for t in task_repo.for_date(clock.today()):
+        if str(t.get("Assigned Telegram User ID")) != str(uid):
+            continue
+        if not task_service.is_openable(t):
+            continue
+        found = True
+        await update.effective_message.reply_text(
+            f"{t['Checklist Type']} — tap to open:",
+            reply_markup=keyboards.open_checklist_button(t["Task ID"]),
+        )
+    if not found:
+        await update.effective_message.reply_text(
+            "You have no open checklists right now."
+        )
+
+
 # ============================================================== admin: schedule
 def _parse_when(token: str):
     token = token.lower()
@@ -344,6 +364,7 @@ def register(application) -> None:
     h(CommandHandler("start", cmd_start))
     h(CommandHandler("help", cmd_help))
     h(CommandHandler(["note", "issue"], cmd_note))
+    h(CommandHandler(["mytask", "checklist_open"], cmd_mytask))
     h(CommandHandler("schedule", cmd_schedule))
     h(CommandHandler("opener", cmd_opener))
     h(CommandHandler("closer", cmd_closer))

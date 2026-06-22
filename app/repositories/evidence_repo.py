@@ -37,9 +37,13 @@ def for_date(d: date) -> list[dict]:
 
 
 def recent(limit_days: int = 14) -> list[dict]:
-    """Recently uploaded evidence with a perceptual hash (for dup detection)."""
+    """Recent evidence with a perceptual hash (for dup detection).
+
+    Capped to the last ~250 rows so duplicate scanning stays fast on a small
+    server — more than enough history to catch a reused image.
+    """
     rows = [e for e in _t().all() if e.get("Perceptual Hash")]
-    return rows[-2000:] if len(rows) > 2000 else rows
+    return rows[-250:]
 
 
 def update(evidence_id: str, changes: dict) -> bool:
