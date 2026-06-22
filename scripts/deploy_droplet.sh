@@ -44,6 +44,11 @@ set_env ENVIRONMENT_NAME "production"
 set_env PORT "8000"
 export DOMAIN
 
+# Also write DOMAIN to deploy/.env so plain `docker compose -f deploy/...`
+# commands (e.g. after a git pull) pick up the domain automatically and don't
+# fall back to a blank string. Compose auto-reads the .env next to the file.
+echo "DOMAIN=${DOMAIN}" > deploy/.env
+
 # --- install Docker if missing ---
 if ! command -v docker >/dev/null 2>&1; then
   echo "==> Installing Docker..."
