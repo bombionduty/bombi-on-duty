@@ -1,0 +1,63 @@
+# DigitalOcean App Platform spec for Bombi On Duty.
+# You can import this in the App Platform UI, OR just connect your GitHub repo
+# and App Platform will auto-detect the Dockerfile. Either way, set the SECRET
+# env vars (token, JSON key, etc.) in the dashboard — never commit them.
+#
+# Why App Platform: it runs 24/7 (no sleeping), gives a free https URL, and
+# that URL is exactly what Telegram Mini Apps + webhooks require.
+name: bombi-on-duty
+region: sgp        # Singapore — closest region to the Philippines
+services:
+  - name: web
+    dockerfile_path: Dockerfile
+    source_dir: /
+    github:
+      repo: REPLACE_WITH/your-github-repo   # set this when you connect GitHub
+      branch: main
+      deploy_on_push: true
+    http_port: 8080
+    instance_size_slug: basic-xxs           # ~always-on, smallest paid size
+    instance_count: 1
+    health_check:
+      http_path: /healthz
+    envs:
+      # APP_URL is a built-in App Platform variable = this app's public https URL.
+      - key: APP_BASE_URL
+        value: ${APP_URL}
+      - key: TIMEZONE
+        value: Asia/Manila
+      - key: TEST_MODE
+        value: "false"
+      - key: ENVIRONMENT_NAME
+        value: production
+      - key: TELEGRAM_MODE
+        value: webhook
+      - key: MINIAPP_SHORT_NAME
+        value: ops
+      - key: PORT
+        value: "8080"
+      # ---- Set these as SECRET in the dashboard (do not hard-code here) ----
+      - key: TELEGRAM_BOT_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+      - key: BOT_USERNAME
+        scope: RUN_TIME
+        type: SECRET
+      - key: ADMIN_TELEGRAM_USER_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: STAFF_GROUP_CHAT_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GOOGLE_SHEET_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GOOGLE_DRIVE_EVIDENCE_FOLDER_ID
+        scope: RUN_TIME
+        type: SECRET
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        scope: RUN_TIME
+        type: SECRET
+      - key: SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET

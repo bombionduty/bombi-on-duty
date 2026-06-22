@@ -1,0 +1,27 @@
+# Secrets — NEVER commit these
+.env
+.env.local
+service_account.json
+*.secrets
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / runtime
+*.log
+logs/
+data/
+tmp/
+
+# Local deploy helper (contains secrets)
+DEPLOY_SECRETS.local.txt

@@ -1,0 +1,46 @@
+# Render.com deployment blueprint (recommended Version 1 host).
+# Render gives a free HTTPS URL which Telegram requires.
+#
+# IMPORTANT (honest limitation): Render's FREE web service "sleeps"
+# after ~15 minutes of no traffic and can take ~30s to wake. That delay
+# can make a scheduled reminder fire late. For reliable scheduling use
+# the "starter" paid instance (always on), OR add a free uptime pinger
+# (e.g. cron-job.org) hitting /healthz every 5 minutes. See README.
+services:
+  - type: web
+    name: berry-bomb-ops
+    runtime: docker
+    plan: starter            # change to "free" to test at no cost (may sleep)
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: BOT_USERNAME
+        sync: false
+      - key: MINIAPP_SHORT_NAME
+        sync: false
+      - key: ADMIN_TELEGRAM_USER_ID
+        sync: false
+      - key: STAFF_GROUP_CHAT_ID
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_DRIVE_EVIDENCE_FOLDER_ID
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_FILE
+        value: service_account.json
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON   # paste full JSON here on Render
+        sync: false
+      - key: APP_BASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: TIMEZONE
+        value: Asia/Manila
+      - key: TEST_MODE
+        value: "false"
+      - key: ENVIRONMENT_NAME
+        value: production
+      - key: TELEGRAM_MODE
+        value: webhook

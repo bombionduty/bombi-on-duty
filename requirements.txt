@@ -1,0 +1,28 @@
+# Berry Bomb Daily Ops — Python dependencies (Version 1)
+# Pinned to recent, stable releases. Tested with Python 3.12.
+
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-telegram-bot==21.9
+APScheduler==3.11.0
+pydantic==2.10.3
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# Google Sheets + Drive
+google-api-python-client==2.155.0
+google-auth==2.37.0
+google-auth-httplib2==0.2.0
+gspread==6.1.4
+
+# Image / evidence processing
+Pillow==11.0.0
+piexif==1.1.3
+ImageHash==4.3.1
+
+# HTTP
+httpx==0.28.1
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.25.0
