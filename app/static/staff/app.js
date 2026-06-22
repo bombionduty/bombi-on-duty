@@ -186,6 +186,7 @@ async function uploadProof(it, fileOrBlob, captureSource) {
     const r = await api(`/api/task/${STATE.taskId}/upload`, { method: "POST", form: fd });
     it.completed = true;
     showProofDone(it, r);
+    flash(`✅ Uploaded: ${it.name}`);
   } catch (e) {
     it.completed = false;
     setProofState(it,
@@ -224,7 +225,8 @@ async function saveText(it) {
     await api(`/api/task/${STATE.taskId}/text`, { method: "POST",
       body: { task_item_id: it.task_item_id, response: val } });
     it.completed = true;
-    setProofState(it, `<span class="pill ok">Saved: ${esc(val)}</span>`);
+    setProofState(it, `<span class="pill ok">✓ Saved: ${esc(val)}</span>`);
+    flash(`✅ Saved: ${it.name}`);
   } catch (e) { showError(e.message); }
   refreshSubmit();
 }

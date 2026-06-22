@@ -59,3 +59,23 @@ function showError(msg) {
   if (el) { el.textContent = msg; el.style.display = "block"; }
   else toast(msg);
 }
+
+// Transient green success banner (auto-hides). Used for "Uploaded complete".
+function flash(msg) {
+  let el = document.getElementById("flash");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "flash";
+    el.style.cssText = "position:sticky;top:0;z-index:99;background:rgba(46,158,91,.18);" +
+      "color:#2e9e5b;padding:12px;border-radius:10px;margin-bottom:12px;" +
+      "font-weight:700;text-align:center;";
+    document.body.prepend(el);
+  }
+  el.textContent = msg;
+  el.style.display = "block";
+  if (window.Telegram && Telegram.WebApp.HapticFeedback) {
+    Telegram.WebApp.HapticFeedback.notificationOccurred("success");
+  }
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = "none"; }, 3000);
+}
