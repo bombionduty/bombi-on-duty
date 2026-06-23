@@ -45,6 +45,13 @@ async def send_due_reminders(task: dict) -> None:
         key = f"reminder::{task['Task ID']}::{i}"
         if markers.done(key):
             continue
+        # Post in the GROUP, tagging the assignee — visible to the admin and it
+        # pings the staff even if they haven't started a private bot chat.
+        fresh = task_service.with_mention(task)
+        mention = fresh.get("_assignee_mention") or task.get("Assigned Staff Name")
+        group = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
+        await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
+        # Best-effort private DM too (works only if they've started the bot).
         tg = task.get("Assigned Telegram User ID")
         if tg:
             await notify.send_message(tg, messages.staff_reminder(task, missing))
