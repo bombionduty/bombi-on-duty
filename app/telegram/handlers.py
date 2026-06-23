@@ -268,6 +268,42 @@ async def cmd_staff(update, ctx):
     await update.message.reply_html("\n".join(lines))
 
 
+async def cmd_syncusernames(update, ctx):
+    """Retroactively pull real @usernames for staff who are in the group.
+
+    Uses getChatMember (allowed for a group the bot is in) to resolve a username
+    from each stored ID — works even for staff who messaged before auto-capture.
+    """
+    if not _is_admin(update):
+        return await _deny(update)
+    from app.repositories.base import as_bool
+    settings = get_settings()
+    results = []
+    for st in staff_repo.all_staff():
+        if not as_bool(st.get("Active")):
+            continue
+        tg = str(st.get("Telegram User ID") or "").strip()
+        if not tg:
+            results.append(f"• {st.get('Staff Name')}: ⚠️ no ID stored")
+            continue
+        try:
+            member = await ctx.bot.get_chat_member(settings.staff_group_chat_id, int(tg))
+            uname = member.user.username or ""
+        except Exception:
+            results.append(f"• {st.get('Staff Name')}: ❌ not found in the group")
+            continue
+        if uname:
+            if str(st.get("Telegram Username") or "") != uname:
+                staff_repo.update_staff(str(st["Staff ID"]), {"Telegram Username": uname})
+            results.append(f"• {st.get('Staff Name')}: @{uname} ✅")
+        else:
+            results.append(f"• {st.get('Staff Name')}: (no username set on their account)")
+    await update.message.reply_html(
+        "🔄 <b>Synced usernames from the group</b>\n\n" + "\n".join(results)
+        + "\n\n<i>Run this anytime after adding new staff (they must be in the group).</i>"
+    )
+
+
 async def cmd_addstaff(update, ctx):
     if not _is_admin(update):
         return await _deny(update)
@@ -440,6 +476,7 @@ def register(application) -> None:
     h(CommandHandler("copyweek", cmd_copyweek))
     h(CommandHandler(["staff", "ids", "staffids"], cmd_staff))
     h(CommandHandler("addstaff", cmd_addstaff))
+    h(CommandHandler(["syncusernames", "refreshusernames"], cmd_syncusernames))
     h(CommandHandler("removestaff", cmd_removestaff))
     h(CommandHandler("summary", cmd_summary))
     h(CommandHandler("announce", cmd_announce))
