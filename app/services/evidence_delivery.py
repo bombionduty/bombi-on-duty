@@ -25,14 +25,24 @@ _TG_MEDIA_GROUP_LIMIT = 10
 
 
 def _caption(ev: dict) -> str:
-    uploader = staff_repo.get_by_staff_id(str(ev.get("Submitted By Staff ID")))
-    uploader_name = uploader.get("Staff Name") if uploader else (
-        ev.get("Submitted By Telegram User ID") or "Unknown")
-    role = ev.get("Submitted By Role") or ""
+    from app.repositories import task_repo
+
+    task = task_repo.get(str(ev.get("Task ID"))) or {}
+    # Primary name is the ASSIGNED person for that shift (who's accountable).
+    assignee = task.get("Assigned Staff Name") or "—"
+    checkpoint = task.get("Checklist Type") or ""
     when = clock.fmt_time(clock.from_iso(ev.get("Uploaded At")))
-    base = f"{ev.get('Evidence Type')} — {uploader_name}"
-    if as_bool(ev.get("Submitted On Behalf Of Staff ID")) or role == constants.ROLE_OIC:
-        base += " (OIC Recovery)"
+    label = f"{checkpoint} • {ev.get('Evidence Type')}".strip(" •")
+    base = f"{label} — {assignee}"
+
+    # Only show a different uploader when it's a genuine OIC recovery.
+    is_recovery = as_bool(ev.get("Submitted On Behalf Of Staff ID")) or \
+        ev.get("Submitted By Role") == constants.ROLE_OIC
+    if is_recovery:
+        uploader = staff_repo.get_by_staff_id(str(ev.get("Submitted By Staff ID")))
+        uname = uploader.get("Staff Name") if uploader else "OIC"
+        base = f"{label} — {assignee} (recovered by {uname} as OIC)"
+
     if as_bool(ev.get("Possible Duplicate")):
         base += " ⚠️ possible duplicate"
     return f"{base} — {when}"
