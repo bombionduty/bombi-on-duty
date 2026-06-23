@@ -49,10 +49,12 @@ def authorize_open(task: dict | None, tg_id: int) -> dict:
             f"This checklist is assigned to {task.get('Assigned Staff Name')}. "
             "Please ask the assigned staff member or the admin to complete it."
         )
-    if task.get("Original Submission Status") in (
+    # Already submitted? (covers on-time AND late completions — a late submit
+    # keeps the original 'Not Submitted' status but sets Submitted At.)
+    if task.get("Submitted At") or task.get("Original Submission Status") in (
         constants.SUB_ON_TIME, constants.SUB_LATE
     ):
-        raise AuthError("This checklist has already been submitted.")
+        raise AuthError("This checklist has already been submitted. ✅")
     if task.get("Resolution Status") == constants.RES_RECOVERED_OIC:
         raise AuthError("This task was completed through an OIC recovery.")
     return task

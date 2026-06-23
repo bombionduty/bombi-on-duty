@@ -129,11 +129,19 @@ def submission_text(task: dict) -> str:
     emoji = CHECK_EMOJI.get(ct, "📋")
     status = task.get("Original Submission Status")
     result = task.get("Checklist Result")
+    # Friendlier status line: a late completion keeps 'Not Submitted' on record
+    # for accountability, but show it clearly as a late submission here.
+    if task.get("Resolution Status") == constants.RES_LATE_BY_STAFF or status == constants.SUB_LATE:
+        status_disp, status_emoji = "Submitted Late (after cutoff)", "🟠"
+    elif status == constants.SUB_ON_TIME:
+        status_disp, status_emoji = "Submitted On Time", "✅"
+    else:
+        status_disp, status_emoji = str(status), "🟡"
     lines = [
         f"{emoji} <b>{e(ct)} just submitted</b>",
         "",
         f"👤 Assigned: {e(task.get('Assigned Staff Name'))}",
-        f"{'✅' if status == constants.SUB_ON_TIME else '🟠'} Status: {e(status)}",
+        f"{status_emoji} Status: {e(status_disp)}",
         f"{'🎉' if result == constants.RESULT_ALL_COMPLETE else '📝'} Result: {e(result)}",
         f"📎 Evidence: {e(task.get('Evidence Status'))}",
         f"🕐 Time: {clock.fmt_time(clock.from_iso(task.get('Submitted At')))}",

@@ -48,3 +48,14 @@ def recent(limit_days: int = 14) -> list[dict]:
 
 def update(evidence_id: str, changes: dict) -> bool:
     return _t().update("Evidence ID", evidence_id, changes)
+
+
+def delete(evidence_id: str) -> bool:
+    t = _t()
+    rows = t.all()
+    for idx, r in enumerate(rows):
+        if str(r.get("Evidence ID")) == evidence_id:
+            t.ws.delete_rows(idx + 2)
+            t._invalidate()  # noqa: SLF001
+            return True
+    return False

@@ -176,6 +176,8 @@ def is_openable(task: dict) -> bool:
     LATE — spec section 18). Only closes once actually submitted, recovered by
     OIC, resolved by admin, or it's a closed day.
     """
+    if task.get("Submitted At"):
+        return False  # already submitted (on time or late) — no button
     if task.get("Original Submission Status") in (
         constants.SUB_ON_TIME, constants.SUB_LATE, constants.SUB_CLOSED
     ):

@@ -162,6 +162,14 @@ def process_and_store(
     """
     from app.services import storage_service  # local import avoids cycle at import time
 
+    # Re-uploading an item REPLACES its previous proof (no duplicate copies).
+    for prev in evidence_repo.for_task_item(str(task_item["Task Item ID"])):
+        try:
+            storage_service.delete(prev.get("Drive File ID"))
+        except Exception:
+            pass
+        evidence_repo.delete(str(prev.get("Evidence ID")))
+
     operating_date = clock.parse_date(str(task["Date"]))
     item_type = str(task_item.get("Item Type"))
 

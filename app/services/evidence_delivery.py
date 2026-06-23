@@ -59,6 +59,15 @@ async def send_evidence(date_iso: str, checklist_type: str | None = None) -> int
                if t.get("Checklist Type") == checklist_type}
         evidence = [e for e in evidence if e.get("Task ID") in ids]
 
+    # De-dupe: keep only the LATEST evidence per checklist item (re-uploads).
+    by_item: dict = {}
+    for e in evidence:
+        key = e.get("Task Item ID") or e.get("Evidence ID")
+        cur = by_item.get(key)
+        if not cur or str(e.get("Uploaded At")) > str(cur.get("Uploaded At")):
+            by_item[key] = e
+    evidence = list(by_item.values())
+
     if not evidence:
         await notify.send_message(admin, "No evidence found for that selection.")
         return 0
