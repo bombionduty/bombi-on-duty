@@ -54,32 +54,57 @@ async def _deny(update: Update) -> None:
 # ============================================================ basic commands
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = _uid(update)
+    user = update.effective_user
+    username = user.username or ""
+    full_name = user.full_name or ""
     staff_repo.mark_private_started(uid)
+
     if staff_repo.is_admin(uid):
         await update.message.reply_html(
             "👋 Welcome, Admin! Tap below to open Admin Controls.\n\n"
             f"🆔 Your Telegram ID: <code>{uid}</code>",
             reply_markup=keyboards.admin_controls_button(),
         )
+        return
+
+    who = staff_repo.get_by_telegram_id(uid)
+    uname_line = f"\n🔗 Username: @{username}" if username else ""
+
+    if who:
+        # Auto-save their username (the admin usually can't see it otherwise).
+        if username and str(who.get("Telegram Username") or "") != username:
+            staff_repo.update_staff(who["Staff ID"], {"Telegram Username": username})
+        await update.message.reply_html(
+            f"👋 Hi {esc_name(who.get('Staff Name'))}! You're connected to "
+            "Berry Bomb Daily Ops. 📋\n\nYou'll get your checklists in the "
+            "staff group. Tap <b>/mytask</b> anytime to reopen your current "
+            "checklist, <b>/note</b> to add a note, or <b>/issue</b> to flag a problem.\n\n"
+            f"🆔 Your Telegram ID: <code>{uid}</code>"
+        )
     else:
-        who = staff_repo.get_by_telegram_id(uid)
-        username = update.effective_user.username
-        uname_line = f"\n🔗 Username: @{username}" if username else ""
-        if who:
-            await update.message.reply_html(
-                f"👋 Hi {esc_name(who.get('Staff Name'))}! You're connected to "
-                "Berry Bomb Daily Ops. 📋\n\nYou'll get your checklists in the "
-                "staff group. Tap <b>/mytask</b> anytime to reopen your current "
-                "checklist, <b>/note</b> to add a note, or <b>/issue</b> to flag a problem.\n\n"
-                f"🆔 Your Telegram ID: <code>{uid}</code>"
-            )
-        else:
-            # Unknown user — give them their ID to hand to the admin.
-            await update.message.reply_html(
-                "👋 Hi! To be added to Berry Bomb Daily Ops, send your admin "
-                "this ID so they can register you:\n\n"
-                f"🆔 <code>{uid}</code>{uname_line}"
-            )
+        await update.message.reply_html(
+            "👋 Hi! To be added to Berry Bomb Daily Ops, your admin will register "
+            "you. I've already sent them your details. 🙌\n\n"
+            f"🆔 <code>{uid}</code>{uname_line}"
+        )
+
+    # Always notify the admin with the person's ID + username automatically.
+    settings = get_settings()
+    if who:
+        note = (
+            f"✅ <b>{esc_name(who.get('Staff Name'))}</b> activated the bot.\n"
+            f"🆔 ID: <code>{uid}</code>\n"
+            f"🔗 Username: {('@'+username) if username else '—'} (saved automatically)"
+        )
+    else:
+        note = (
+            "👤 <b>Someone activated the bot</b> (not yet in your staff list):\n"
+            f"📛 Name: {esc_name(full_name)}\n"
+            f"🆔 ID: <code>{uid}</code>\n"
+            f"🔗 Username: {('@'+username) if username else '—'}\n\n"
+            "Add them in <b>Admin → Staff → Add staff</b> (paste the ID + username above)."
+        )
+    await notify.send_message(settings.admin_telegram_user_id, note)
 
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
