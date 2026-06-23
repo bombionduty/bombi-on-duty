@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from telegram import Update
+from telegram import ForceReply, Update
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -33,6 +33,10 @@ from app.services import (
 from app.telegram import keyboards, notify
 
 log = logging.getLogger(__name__)
+
+# When an OIC taps "Mark Incomplete", we wait for their next message (the issue
+# details). Maps their Telegram user id -> the review id being flagged.
+_pending_issue: dict[int, str] = {}
 
 
 def _uid(update: Update) -> int:
@@ -440,10 +444,19 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         admin_id = get_settings().admin_telegram_user_id
 
         if action == "view":
-            # Send the evidence to WHOEVER tapped (the OIC, not the admin).
+            # Send the evidence to WHOEVER tapped (the OIC, not the admin)…
             await q.answer("Sending the evidence to you…")
             await evidence_delivery.send_evidence(
                 str(task.get("Date")), task.get("Checklist Type"), to_chat_id=uid)
+            # …then put the review buttons right under it so she can act.
+            await notify.send_message(uid, "👇 After checking the photos above:",
+                                      reply_markup=keyboards.review_buttons(review_id))
+            # Let the admin know the OIC is reviewing (only when OIC != admin).
+            if not is_admin:
+                await notify.send_message(admin_id,
+                    f"👁 Store OIC <b>{reviewer_name}</b> is reviewing the "
+                    f"{task.get('Checklist Type')} evidence "
+                    f"({task.get('Assigned Staff Name')}).")
             return
 
         if action == "ok":
@@ -467,18 +480,17 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return await q.answer("Marked complete ✅")
 
         if action == "follow":
-            reviews.resolve(review_id, uid, "Follow-Up Needed")
-            await notify.edit_message(q.message.chat_id, q.message.message_id,
-                f"⚠️ <b>Follow-up needed</b>\nFlagged by {reviewer_name} ({role_word})")
-            await notify.send_message(group_chat,
-                f"⚠️ {task.get('Checklist Type')} evidence flagged for follow-up by "
-                f"<b>{reviewer_name}</b> ({role_word}).")
-            if not is_admin:
-                await notify.send_message(admin_id,
-                    f"⚠️ Store OIC <b>{reviewer_name}</b> flagged the "
-                    f"{task.get('Checklist Type')} evidence "
-                    f"({task.get('Assigned Staff Name')}) for FOLLOW-UP.")
-            return await q.answer("Flagged for follow-up")
+            # Ask the reviewer to describe the issue; capture their next message.
+            _pending_issue[uid] = review_id
+            await q.answer()
+            await ctx.bot.send_message(
+                chat_id=uid,
+                text=("⚠️ <b>What's incomplete or wrong?</b>\n"
+                      "Reply with a short description and I'll send it to the admin."),
+                parse_mode="HTML",
+                reply_markup=ForceReply(input_field_placeholder="Describe the issue…"),
+            )
+            return
 
     if data.startswith("oic:"):
         _, action, task_id = data.split(":", 2)
@@ -498,10 +510,47 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await q.answer()
 
 
+async def on_issue_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Captures the OIC's typed issue after they tapped 'Mark Incomplete',
+    then sends the admin a summary of the decision + the issue details."""
+    uid = _uid(update)
+    review_id = _pending_issue.get(uid)
+    if not review_id:
+        return  # not in a flag flow — ignore normal messages
+    _pending_issue.pop(uid, None)
+    text = (update.message.text or "").strip()
+    rv = reviews.get(review_id)
+    if not rv:
+        return await update.message.reply_text("That review is no longer available.")
+    task = task_repo.get(str(rv.get("Task ID"))) or {}
+    is_admin = staff_repo.is_admin(uid)
+    me = staff_repo.get_by_telegram_id(uid)
+    name = "Admin" if is_admin else (me.get("Staff Name") if me else "Reviewer")
+    role_word = "Admin" if is_admin else "Store OIC"
+
+    reviews.resolve(review_id, uid, "Follow-Up Needed", notes=text)
+    task_repo.update(str(rv["Task ID"]), {"Evidence Status": constants.EV_REVIEW, "Review Required": True})
+
+    group_chat = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
+    await notify.send_message(group_chat,
+        f"⚠️ {task.get('Checklist Type')} evidence marked <b>Incomplete</b> by "
+        f"<b>{name}</b> ({role_word}).")
+    if not is_admin:
+        await notify.send_message(get_settings().admin_telegram_user_id,
+            f"⚠️ <b>OIC Review: Marked Incomplete</b>\n\n"
+            f"{task.get('Checklist Type')} — {task.get('Assigned Staff Name')}\n"
+            f"Reviewer: {name} (Store OIC)\n"
+            f"🛠 Issue: {text}")
+    await update.message.reply_text("✅ Logged — the admin has been notified with your note.")
+
+
 def register(application) -> None:
     h = application.add_handler
     # Group 1 runs alongside the main handlers; passively refreshes usernames.
     h(TypeHandler(Update, capture_user), group=1)
+    # Capture the OIC's typed issue (private text, not a command) after they
+    # tap Mark Incomplete. Harmlessly ignores messages when nobody's flagging.
+    h(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, on_issue_reply))
     h(CommandHandler("start", cmd_start))
     h(CommandHandler("help", cmd_help))
     h(CommandHandler(["note", "issue"], cmd_note))
