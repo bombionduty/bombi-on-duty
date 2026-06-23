@@ -104,6 +104,34 @@ class SheetTable:
             self.ws.append_rows(matrix, value_input_option="USER_ENTERED")
             self._invalidate()
 
+    def update_many(self, col: str, changes_by_key: dict[str, dict]) -> int:
+        """Update many rows in ONE Sheets API call (fast).
+
+        changes_by_key maps a key value (in column `col`) to its changes dict.
+        Collapses N separate round-trips into a single update_cells call — this
+        is what makes checklist submit fast instead of writing item-by-item.
+        """
+        if not changes_by_key:
+            return 0
+        with self._lock:
+            keys = {str(k) for k in changes_by_key}
+            records = self.ws.get_all_records(expected_headers=self.headers)
+            cells = []
+            for idx, row in enumerate(records):
+                key = str(row.get(col, ""))
+                if key not in keys:
+                    continue
+                sheet_row = idx + 2
+                for ck, cv in changes_by_key[key].items():
+                    if ck not in self.headers:
+                        raise KeyError(f"{ck!r} not a column of {self.tab_name}")
+                    col_idx = self.headers.index(ck) + 1
+                    cells.append(gspread.Cell(sheet_row, col_idx, self._cell(cv)))
+            if cells:
+                self.ws.update_cells(cells, value_input_option="USER_ENTERED")
+                self._invalidate()
+            return len(cells)
+
     def update(self, col: str, value: Any, changes: dict) -> bool:
         """Update the FIRST row where row[col] == value. Returns True if found."""
         with self._lock:

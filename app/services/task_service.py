@@ -128,20 +128,22 @@ def attestation_done(task_id: str) -> bool:
     return all(as_bool(i.get("Completed")) for i in items)
 
 
+def compute_evidence_status(task_id: str) -> str:
+    """Derive evidence status WITHOUT writing (so callers can fold it into a
+    single task update)."""
+    if missing_items(task_id):
+        return constants.EV_MISSING
+    from app.repositories import evidence_repo
+    ev = evidence_repo.for_task(task_id)
+    if any(as_bool(e.get("Possible Duplicate")) for e in ev):
+        return constants.EV_DUPLICATE
+    if any(str(e.get("Review Status")).startswith("Review") for e in ev):
+        return constants.EV_REVIEW
+    return constants.EV_COMPLETE
+
+
 def recompute_evidence_status(task_id: str) -> str:
-    missing = missing_items(task_id)
-    if missing:
-        status = constants.EV_MISSING
-    else:
-        # any review/duplicate flag bubbles up
-        from app.repositories import evidence_repo
-        ev = evidence_repo.for_task(task_id)
-        if any(as_bool(e.get("Possible Duplicate")) for e in ev):
-            status = constants.EV_DUPLICATE
-        elif any(str(e.get("Review Status")).startswith("Review") for e in ev):
-            status = constants.EV_REVIEW
-        else:
-            status = constants.EV_COMPLETE
+    status = compute_evidence_status(task_id)
     task_repo.update(task_id, {"Evidence Status": status})
     return status
 

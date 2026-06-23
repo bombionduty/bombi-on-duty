@@ -133,29 +133,31 @@ async def submit(
     if missing:
         raise AuthError("Missing required proof: " + ", ".join(missing))
 
-    # 2) Resolve attestation outcome.
+    # 2) Resolve attestation outcome — batched into ONE Sheets write (fast).
     issues = issues or []
-    issue_item_ids = {str(i["task_item_id"]) for i in issues}
+    issue_map = {str(i["task_item_id"]): i.get("details", "") for i in issues}
+    now_iso = clock.iso(clock.now())
+    item_changes: dict[str, dict] = {}
     for it in task_repo.items_for(task_id):
         if str(it.get("Item Type")) != constants.ITEM_ATTESTATION:
             continue
-        reported = str(it.get("Task Item ID")) in issue_item_ids
-        details = next(
-            (i.get("details", "") for i in issues
-             if str(i["task_item_id"]) == str(it.get("Task Item ID"))), "")
-        task_repo.update_item(it["Task Item ID"], {
+        tiid = str(it.get("Task Item ID"))
+        item_changes[tiid] = {
             "Completed": True,
-            "Completed At": clock.iso(clock.now()),
-            "Issue Reported": reported,
-            "Issue Details": details,
-        })
+            "Completed At": now_iso,
+            "Issue Reported": tiid in issue_map,
+            "Issue Details": issue_map.get(tiid, ""),
+        }
+    if item_changes:
+        task_repo.update_items(item_changes)
 
     result = constants.RESULT_ISSUE if (completion_mode == "issue" and issues) \
         else constants.RESULT_ALL_COMPLETE
 
     late = _is_late(task)
     sub_status = constants.SUB_LATE if late else constants.SUB_ON_TIME
-    ev_status = task_service.recompute_evidence_status(task_id)
+    # Compute (don't write) — folded into the single task update below.
+    ev_status = task_service.compute_evidence_status(task_id)
 
     changes = {
         "Submitted At": clock.iso(clock.now()),

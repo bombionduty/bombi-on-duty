@@ -158,3 +158,8 @@ def get_item(task_item_id: str) -> dict | None:
 
 def update_item(task_item_id: str, changes: dict) -> bool:
     return _items().update("Task Item ID", task_item_id, changes)
+
+
+def update_items(changes_by_id: dict[str, dict]) -> int:
+    """Update many task items in a single Sheets call (used on submit)."""
+    return _items().update_many("Task Item ID", changes_by_id)
