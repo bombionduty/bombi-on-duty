@@ -61,14 +61,11 @@ async def escalate_if_due(task: dict) -> None:
     key = f"escalation::{task['Task ID']}"
     if markers.done(key):
         return
-    oic = staff_repo.current_oic()
-    if not oic or not oic.get("Telegram User ID"):
-        log.warning("No OIC configured; cannot escalate task %s", task["Task ID"])
-        markers.mark(key)
-        return
+    # Escalate to the OIC — or the admin if the task is assigned to the OIC.
+    target, _, _ = staff_repo.oversight_target(task.get("Assigned Telegram User ID"))
     missing = task_service.missing_items(task["Task ID"])
     sent = await notify.send_message(
-        oic["Telegram User ID"],
+        target,
         messages.oic_alert(task_service.with_mention(task), missing, after_cutoff=False),
         reply_markup=keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=False),
     )
@@ -118,13 +115,13 @@ async def cutoff_if_due(task: dict) -> None:
             + "\n\n👉 You can still submit — it'll be recorded as <b>completed late</b>. "
             "Tap /mytask to finish it.",
         )
-    oic = staff_repo.current_oic()
-    if oic and oic.get("Telegram User ID"):
-        sent = await notify.send_message(
-            oic["Telegram User ID"],
-            messages.oic_alert(fresh, missing, after_cutoff=True),
-            reply_markup=keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=True),
-        )
-        if sent:
-            task_repo.update(task["Task ID"], {"OIC Alert Message ID": sent.message_id})
+    # Cutoff alert to the OIC — or the admin if the task is assigned to the OIC.
+    target, _, _ = staff_repo.oversight_target(task.get("Assigned Telegram User ID"))
+    sent = await notify.send_message(
+        target,
+        messages.oic_alert(fresh, missing, after_cutoff=True),
+        reply_markup=keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=True),
+    )
+    if sent:
+        task_repo.update(task["Task ID"], {"OIC Alert Message ID": sent.message_id})
     markers.mark(key)

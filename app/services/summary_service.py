@@ -186,16 +186,15 @@ async def notify_submission(task: dict, ev_status: str) -> None:
     evidence pushed automatically with Looks Complete / Mark Incomplete buttons."""
     from app.services import evidence_delivery
     admin_id = get_settings().admin_telegram_user_id
-    oic = staff_repo.current_oic()
-    oic_id = int(oic["Telegram User ID"]) if oic and oic.get("Telegram User ID") else None
+    # The reviewer is the OIC — UNLESS the task is assigned to the OIC (or there's
+    # no OIC), in which case it falls back to the admin.
+    target, _target_name, _is_admin_fb = staff_repo.oversight_target(
+        task.get("Assigned Telegram User ID"))
 
-    # Admin informational summary (skip if the admin IS the OIC — the review
-    # package below already goes to them).
-    if not (oic_id and oic_id == admin_id):
+    # Admin informational summary (skip if the review already goes to the admin).
+    if target != admin_id:
         await send_submission_alert(task)
 
-    # Whoever reviews (OIC, or admin if no OIC set) gets evidence + buttons.
-    target = oic_id or admin_id
     flag = ""
     if ev_status == constants.EV_DUPLICATE:
         flag = "\n\n⚠️ <b>Possible duplicate image — please check carefully.</b>"

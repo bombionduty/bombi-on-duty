@@ -57,6 +57,24 @@ def current_oic() -> dict | None:
     return None
 
 
+def oversight_target(assigned_tg_id) -> tuple[int, str, bool]:
+    """Who should receive OIC-style alerts (review/escalation/cutoff) for a task.
+
+    Normally the Store OIC — but if the task is assigned to the OIC themselves
+    (or there's no active OIC), it falls back to the Admin, since you can't have
+    someone review/escalate their own checklist.
+
+    Returns (chat_id, display_name, is_admin_fallback).
+    """
+    from app.config import get_settings
+    admin_id = get_settings().admin_telegram_user_id
+    oic = current_oic()
+    if (oic and oic.get("Telegram User ID")
+            and str(oic["Telegram User ID"]) != str(assigned_tg_id)):
+        return int(oic["Telegram User ID"]), str(oic.get("Staff Name") or "Store OIC"), False
+    return int(admin_id), "Admin", True
+
+
 def add_staff(
     name: str,
     telegram_user_id: int | str,
