@@ -48,10 +48,14 @@ def _caption(ev: dict) -> str:
     return f"{base} — {when}"
 
 
-async def send_evidence(date_iso: str, checklist_type: str | None = None) -> int:
-    """Send images for an operating date (optionally one checkpoint). Returns count."""
+async def send_evidence(date_iso: str, checklist_type=None, to_chat_id=None) -> int:
+    """Send images for an operating date (optionally one checkpoint).
+
+    Sends to `to_chat_id` if given (e.g. the OIC who tapped View Evidence),
+    otherwise to the admin. Returns the number of images sent.
+    """
     d = clock.parse_date(date_iso)
-    admin = get_settings().admin_telegram_user_id
+    target = to_chat_id or get_settings().admin_telegram_user_id
     evidence = evidence_repo.for_date(d)
     if checklist_type:
         from app.repositories import task_repo
@@ -69,7 +73,7 @@ async def send_evidence(date_iso: str, checklist_type: str | None = None) -> int
     evidence = list(by_item.values())
 
     if not evidence:
-        await notify.send_message(admin, "No evidence found for that selection.")
+        await notify.send_message(target, "No evidence found for that selection.")
         return 0
 
     media: list[InputMediaPhoto] = []
@@ -85,10 +89,10 @@ async def send_evidence(date_iso: str, checklist_type: str | None = None) -> int
             continue
         media.append(InputMediaPhoto(media=data, caption=_caption(ev)))
         if len(media) == _TG_MEDIA_GROUP_LIMIT:
-            await notify.send_media_group(admin, media)
+            await notify.send_media_group(target, media)
             sent += len(media)
             media = []
     if media:
-        await notify.send_media_group(admin, media)
+        await notify.send_media_group(target, media)
         sent += len(media)
     return sent

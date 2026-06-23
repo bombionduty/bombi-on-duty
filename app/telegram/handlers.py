@@ -428,19 +428,57 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     if data.startswith("rev:"):
         _, action, review_id = data.split(":", 2)
+        rv = reviews.get(review_id)
+        if not rv:
+            return await q.answer("Review not found.", show_alert=True)
+        task = task_repo.get(str(rv.get("Task ID"))) or {}
+        is_admin = staff_repo.is_admin(uid)
+        me = staff_repo.get_by_telegram_id(uid)
+        reviewer_name = "Admin" if is_admin else (me.get("Staff Name") if me else "Reviewer")
+        role_word = "Admin" if is_admin else "Store OIC"
+        group_chat = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
+        admin_id = get_settings().admin_telegram_user_id
+
+        if action == "view":
+            # Send the evidence to WHOEVER tapped (the OIC, not the admin).
+            await q.answer("Sending the evidence to you…")
+            await evidence_delivery.send_evidence(
+                str(task.get("Date")), task.get("Checklist Type"), to_chat_id=uid)
+            return
+
         if action == "ok":
             reviews.resolve(review_id, uid, "Looks Complete")
-            return await q.answer("Marked reviewed ✅")
+            task_repo.update(str(rv["Task ID"]),
+                             {"Evidence Status": constants.EV_COMPLETE, "Review Required": False})
+            # Update the tapped review message.
+            await notify.edit_message(q.message.chat_id, q.message.message_id,
+                f"✅ <b>Evidence reviewed — looks complete</b>\n"
+                f"By {reviewer_name} ({role_word})")
+            # Tell the group it was reviewed.
+            await notify.send_message(group_chat,
+                f"👁 {task.get('Checklist Type')} evidence reviewed by "
+                f"<b>{reviewer_name}</b> ({role_word}) — ✅ looks complete.")
+            # If the OIC reviewed it, privately notify the admin.
+            if not is_admin:
+                await notify.send_message(admin_id,
+                    f"👁 Store OIC <b>{reviewer_name}</b> reviewed the "
+                    f"{task.get('Checklist Type')} evidence "
+                    f"({task.get('Assigned Staff Name')}) — ✅ marked complete.")
+            return await q.answer("Marked complete ✅")
+
         if action == "follow":
             reviews.resolve(review_id, uid, "Follow-Up Needed")
+            await notify.edit_message(q.message.chat_id, q.message.message_id,
+                f"⚠️ <b>Follow-up needed</b>\nFlagged by {reviewer_name} ({role_word})")
+            await notify.send_message(group_chat,
+                f"⚠️ {task.get('Checklist Type')} evidence flagged for follow-up by "
+                f"<b>{reviewer_name}</b> ({role_word}).")
+            if not is_admin:
+                await notify.send_message(admin_id,
+                    f"⚠️ Store OIC <b>{reviewer_name}</b> flagged the "
+                    f"{task.get('Checklist Type')} evidence "
+                    f"({task.get('Assigned Staff Name')}) for FOLLOW-UP.")
             return await q.answer("Flagged for follow-up")
-        if action == "view":
-            rv = reviews.get(review_id)
-            if rv:
-                await evidence_delivery.send_evidence(
-                    str(task_repo.get(rv["Task ID"]).get("Date")),
-                    task_repo.get(rv["Task ID"]).get("Checklist Type"))
-            return await q.answer("Sending evidence…")
 
     if data.startswith("oic:"):
         _, action, task_id = data.split(":", 2)
