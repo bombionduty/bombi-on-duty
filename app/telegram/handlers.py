@@ -234,13 +234,22 @@ async def cmd_copyweek(update, ctx):
 async def cmd_staff(update, ctx):
     if not _is_admin(update):
         return await _deny(update)
-    lines = ["<b>Staff</b>"]
+    from app.repositories.base import as_bool
+    lines = ["👥 <b>Staff directory</b>\n"]
     for s in staff_repo.all_staff():
-        active = "✅" if str(s.get("Active")).lower() in ("true", "yes", "1") else "💤"
-        lines.append(f"{active} {s.get('Staff Name')} ({s.get('Role')}) — {s.get('Telegram User ID')}")
+        active = "✅" if as_bool(s.get("Active")) else "💤"
+        uname = s.get("Telegram Username")
+        uname_str = f"@{uname}" if uname else "—"
+        started = "✅" if as_bool(s.get("Private Bot Started")) else "⚠️ not started"
+        lines.append(
+            f"{active} <b>{esc_name(s.get('Staff Name'))}</b> · {esc_name(s.get('Role'))}\n"
+            f"   🆔 <code>{s.get('Telegram User ID') or '—'}</code>\n"
+            f"   🔗 {uname_str}   ·   bot: {started}"
+        )
     dupes = staff_repo.duplicate_active_telegram_ids()
     if dupes and not get_settings().test_mode:
         lines.append(f"\n⚠️ Duplicate active Telegram IDs: {', '.join(dupes)}")
+    lines.append("\n<i>Staff get their own ID/username by tapping Start in the bot.</i>")
     await update.message.reply_html("\n".join(lines))
 
 
@@ -412,7 +421,7 @@ def register(application) -> None:
     h(CommandHandler("closed", cmd_closed))
     h(CommandHandler("open", cmd_open))
     h(CommandHandler("copyweek", cmd_copyweek))
-    h(CommandHandler("staff", cmd_staff))
+    h(CommandHandler(["staff", "ids", "staffids"], cmd_staff))
     h(CommandHandler("addstaff", cmd_addstaff))
     h(CommandHandler("removestaff", cmd_removestaff))
     h(CommandHandler("summary", cmd_summary))
