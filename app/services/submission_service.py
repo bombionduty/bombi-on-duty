@@ -178,8 +178,18 @@ async def submit(
               "submit", "Task", task_id, original_staff_id=task.get("Assigned Staff ID", ""))
 
     await task_service.refresh_group_card(task_id)
-    await _post_submit_alerts(task_repo.get(task_id), ev_status)
-    return task_repo.get(task_id)
+    fresh = task_repo.get(task_id)
+    await _post_submit_alerts(fresh, ev_status)
+
+    # Instant admin summary + evidence push (configurable in Settings).
+    from app.repositories.misc_repo import settings_store
+    from app.services import summary_service
+    if settings_store.get_bool(constants.SETTING_AUTO_SEND_ON_SUBMIT):
+        try:
+            await summary_service.send_submission_alert(fresh)
+        except Exception:
+            log.exception("Auto submission alert failed for %s", task_id)
+    return fresh
 
 
 async def _post_submit_alerts(task: dict, ev_status: str) -> None:

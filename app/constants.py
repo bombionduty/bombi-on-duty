@@ -84,6 +84,9 @@ SETTING_WEEKLY_REPORT_DAY = "weekly_report_day"                 # e.g. "MON 09:0
 SETTING_EVIDENCE_RETENTION_DAYS = "evidence_retention_days"
 SETTING_RANDOM_SPOT_CHECKS = "random_spot_checks_enabled"
 SETTING_EMERGENCY_TAKEOVER = "emergency_takeover_enabled"
+# When true, the admin gets an instant summary + the evidence photos the moment
+# a checklist is submitted (not just the midnight daily summary).
+SETTING_AUTO_SEND_ON_SUBMIT = "auto_send_evidence_on_submit"
 
 SETTING_DEFAULTS = {
     SETTING_OIC_RECOVERY_DAYS: "7",
@@ -93,6 +96,7 @@ SETTING_DEFAULTS = {
     SETTING_EVIDENCE_RETENTION_DAYS: "90",
     SETTING_RANDOM_SPOT_CHECKS: "false",
     SETTING_EMERGENCY_TAKEOVER: "false",
+    SETTING_AUTO_SEND_ON_SUBMIT: "true",
 }
 
 # Days-of-week helpers

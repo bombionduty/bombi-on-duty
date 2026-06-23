@@ -121,6 +121,42 @@ async def send_daily_summary(d: date) -> None:
             task_repo.update(t["Task ID"], {"Daily Summary Message ID": sent.message_id})
 
 
+def submission_text(task: dict) -> str:
+    """Short, instant summary for ONE submitted checkpoint."""
+    from app.telegram.messages import CHECK_EMOJI
+    e = messages.esc
+    ct = task["Checklist Type"]
+    emoji = CHECK_EMOJI.get(ct, "📋")
+    status = task.get("Original Submission Status")
+    result = task.get("Checklist Result")
+    lines = [
+        f"{emoji} <b>{e(ct)} just submitted</b>",
+        "",
+        f"👤 Assigned: {e(task.get('Assigned Staff Name'))}",
+        f"{'✅' if status == constants.SUB_ON_TIME else '🟠'} Status: {e(status)}",
+        f"{'🎉' if result == constants.RESULT_ALL_COMPLETE else '📝'} Result: {e(result)}",
+        f"📎 Evidence: {e(task.get('Evidence Status'))}",
+        f"🕐 Time: {clock.fmt_time(clock.from_iso(task.get('Submitted At')))}",
+    ]
+    issues = [it for it in task_repo.items_for(task["Task ID"]) if as_bool(it.get("Issue Reported"))]
+    if issues:
+        lines.append("")
+        lines.append("⚠️ <b>Issues reported:</b>")
+        for it in issues:
+            lines.append(f"   • {e(it.get('Item Name'))}: {e(it.get('Issue Details'))}")
+    lines.append("\n📤 Sending the evidence below…")
+    return "\n".join(lines)
+
+
+async def send_submission_alert(task: dict) -> None:
+    """Instant admin summary + push the evidence photos (spec sections 27, 28)."""
+    from app.services import evidence_delivery
+    admin = get_settings().admin_telegram_user_id
+    await notify.send_message(admin, submission_text(task),
+                              reply_markup=keyboards.summary_buttons(str(task["Date"])))
+    await evidence_delivery.send_evidence(str(task["Date"]), task["Checklist Type"])
+
+
 async def send_recovery_update(d: date, task: dict) -> None:
     """After an OIC recovery, append a short resolution message (spec section 28)."""
     settings = get_settings()
