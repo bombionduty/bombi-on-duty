@@ -181,36 +181,13 @@ async def submit(
 
     await task_service.refresh_group_card(task_id)
     fresh = task_repo.get(task_id)
-    await _post_submit_alerts(fresh, ev_status)
 
-    # Instant admin summary + evidence push (configurable in Settings).
+    # Instant notifications: admin summary + OIC review package (evidence + buttons).
     from app.repositories.misc_repo import settings_store
     from app.services import summary_service
     if settings_store.get_bool(constants.SETTING_AUTO_SEND_ON_SUBMIT):
         try:
-            await summary_service.send_submission_alert(fresh)
+            await summary_service.notify_submission(fresh, ev_status)
         except Exception:
-            log.exception("Auto submission alert failed for %s", task_id)
+            log.exception("Submission notify failed for %s", task_id)
     return fresh
-
-
-async def _post_submit_alerts(task: dict, ev_status: str) -> None:
-    """Private review alerts on duplicate / review-recommended (sections 15, 24)."""
-    settings = get_settings()
-    if ev_status in (constants.EV_DUPLICATE, constants.EV_REVIEW):
-        reason = ("Possible reused/duplicate image" if ev_status == constants.EV_DUPLICATE
-                  else "Evidence marked Review Recommended")
-        review = reviews.add(task["Task ID"], reason)
-        text = (
-            f"<b>Evidence Review Needed</b>\n\n"
-            f"Task: {task['Checklist Type']}\n"
-            f"Assigned staff: {task.get('Assigned Staff Name')}\n"
-            f"Date: {clock.fmt_date(clock.parse_date(str(task['Date'])))}\n"
-            f"Reason: {reason}"
-        )
-        await notify.send_message(settings.admin_telegram_user_id, text,
-                                  reply_markup=keyboards.review_buttons(review["Review ID"]))
-        oic = staff_repo.current_oic()
-        if oic and oic.get("Telegram User ID"):
-            await notify.send_message(oic["Telegram User ID"], text,
-                                      reply_markup=keyboards.review_buttons(review["Review ID"]))

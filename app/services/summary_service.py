@@ -11,10 +11,10 @@ from datetime import date
 
 from app import clock, constants
 from app.config import get_settings
-from app.repositories import schedule_repo, task_repo
+from app.repositories import schedule_repo, staff_repo, task_repo
 from app.repositories.base import as_bool
 from app.repositories.misc_repo import notes as notes_repo
-from app.repositories.misc_repo import recovery
+from app.repositories.misc_repo import recovery, reviews
 from app.telegram import keyboards, messages, notify
 
 log = logging.getLogger(__name__)
@@ -163,6 +163,52 @@ async def send_submission_alert(task: dict) -> None:
     await notify.send_message(admin, submission_text(task),
                               reply_markup=keyboards.summary_buttons(str(task["Date"])))
     await evidence_delivery.send_evidence(str(task["Date"]), task["Checklist Type"])
+
+
+def _review_brief(task: dict) -> str:
+    e = messages.esc
+    from app.telegram.messages import CHECK_EMOJI
+    ct = task["Checklist Type"]
+    emoji = CHECK_EMOJI.get(ct, "📋")
+    when = clock.fmt_time(clock.from_iso(task.get("Submitted At")))
+    lines = [
+        f"{emoji} <b>{e(ct)}</b> — {e(task.get('Assigned Staff Name'))}",
+        f"Result: {e(task.get('Checklist Result'))} · Submitted {when}",
+    ]
+    for it in task_repo.items_for(task["Task ID"]):
+        if as_bool(it.get("Issue Reported")):
+            lines.append(f"⚠️ {e(it.get('Item Name'))}: {e(it.get('Issue Details'))}")
+    return "\n".join(lines)
+
+
+async def notify_submission(task: dict, ev_status: str) -> None:
+    """On every submission: admin gets an info summary; the OIC gets the
+    evidence pushed automatically with Looks Complete / Mark Incomplete buttons."""
+    from app.services import evidence_delivery
+    admin_id = get_settings().admin_telegram_user_id
+    oic = staff_repo.current_oic()
+    oic_id = int(oic["Telegram User ID"]) if oic and oic.get("Telegram User ID") else None
+
+    # Admin informational summary (skip if the admin IS the OIC — the review
+    # package below already goes to them).
+    if not (oic_id and oic_id == admin_id):
+        await send_submission_alert(task)
+
+    # Whoever reviews (OIC, or admin if no OIC set) gets evidence + buttons.
+    target = oic_id or admin_id
+    flag = ""
+    if ev_status == constants.EV_DUPLICATE:
+        flag = "\n\n⚠️ <b>Possible duplicate image — please check carefully.</b>"
+    elif ev_status == constants.EV_REVIEW:
+        flag = "\n\n⚠️ <b>System flag: review recommended.</b>"
+
+    review = reviews.add(task["Task ID"], "Submission review")
+    await notify.send_message(target, "🧐 <b>Please review this submission</b>\n\n"
+                              + _review_brief(task) + flag)
+    await evidence_delivery.send_evidence(str(task["Date"]), task["Checklist Type"],
+                                          to_chat_id=target)
+    await notify.send_message(target, "👇 Tap after checking the photos above:",
+                              reply_markup=keyboards.review_buttons(review["Review ID"]))
 
 
 async def send_recovery_update(d: date, task: dict) -> None:

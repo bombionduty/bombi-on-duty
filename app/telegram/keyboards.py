@@ -43,9 +43,9 @@ def oic_followup_buttons(task_id: str, allow_recovery: bool) -> InlineKeyboardMa
 
 def review_buttons(review_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👁 View Evidence", callback_data=f"rev:view:{review_id}")],
-        [InlineKeyboardButton("✅ Reviewed — Looks Complete", callback_data=f"rev:ok:{review_id}")],
-        [InlineKeyboardButton("⚠️ Follow-Up Needed", callback_data=f"rev:follow:{review_id}")],
+        [InlineKeyboardButton("✅ Looks Complete", callback_data=f"rev:ok:{review_id}")],
+        [InlineKeyboardButton("⚠️ Mark Incomplete", callback_data=f"rev:follow:{review_id}")],
+        [InlineKeyboardButton("👁 Resend Evidence", callback_data=f"rev:view:{review_id}")],
     ])
 
 
