@@ -45,6 +45,17 @@ async def current_caller(
     if not role:
         raise HTTPException(status_code=403, detail="Not an authorised user.")
     staff = staff_repo.get_by_telegram_id(tg_id)
+
+    # Passive auto-capture: the validated initData contains the real @username,
+    # so keep the staff record's username fresh whenever they use the Mini App.
+    try:
+        username = (validated.get("user") or {}).get("username") or ""
+        if staff and username and str(staff.get("Telegram Username") or "") != username:
+            staff_repo.update_staff(str(staff["Staff ID"]), {"Telegram Username": username})
+            staff["Telegram Username"] = username
+    except Exception:
+        pass  # never block a request over a username refresh
+
     return Caller(tg_id=tg_id, role=role, staff=staff)
 
 

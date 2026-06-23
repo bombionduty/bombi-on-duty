@@ -15,6 +15,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -49,6 +50,20 @@ def _is_admin(update: Update) -> bool:
 
 async def _deny(update: Update) -> None:
     await update.effective_message.reply_text("This command is for the admin only.")
+
+
+async def capture_user(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs on every update: keep a known staff's @username fresh from any
+    interaction (button tap, command, group message) — no extra step needed."""
+    u = update.effective_user
+    if not u or not u.username or staff_repo.is_admin(u.id):
+        return
+    s = staff_repo.get_by_telegram_id(u.id)
+    if s and str(s.get("Telegram Username") or "") != u.username:
+        try:
+            staff_repo.update_staff(str(s["Staff ID"]), {"Telegram Username": u.username})
+        except Exception:
+            pass
 
 
 # ============================================================ basic commands
@@ -411,6 +426,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 def register(application) -> None:
     h = application.add_handler
+    # Group 1 runs alongside the main handlers; passively refreshes usernames.
+    h(TypeHandler(Update, capture_user), group=1)
     h(CommandHandler("start", cmd_start))
     h(CommandHandler("help", cmd_help))
     h(CommandHandler(["note", "issue"], cmd_note))
