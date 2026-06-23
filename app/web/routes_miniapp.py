@@ -341,6 +341,8 @@ async def admin_checklists_save(payload: dict, caller: Caller = Depends(current_
         checklist_repo.update_item(payload["item_id"], payload.get("changes", {}))
     elif action == "archive":
         checklist_repo.archive_item(payload["item_id"])
+    elif action == "delete":
+        checklist_repo.delete_item(payload["item_id"])
     else:
         raise HTTPException(400, "Unknown action.")
     return {"ok": True}

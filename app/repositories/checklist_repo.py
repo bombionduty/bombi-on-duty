@@ -106,5 +106,22 @@ def update_item(item_id: str, changes: dict) -> bool:
 
 
 def archive_item(item_id: str) -> bool:
-    """Never hard-delete items with history (spec section 32)."""
+    """Soft-disable: stops appearing in future tasks, keeps the row."""
     return update_item(item_id, {"Active": False, "Effective Until": clock.today().isoformat()})
+
+
+def delete_item(item_id: str) -> bool:
+    """Permanently remove a template item.
+
+    Safe for history: daily tasks store their OWN snapshot of items (Task Items
+    tab), so deleting a template never alters past submissions — it only stops
+    the item from appearing in FUTURE tasks.
+    """
+    t = _t()
+    rows = t.all()
+    for idx, r in enumerate(rows):
+        if str(r.get("Item ID")) == item_id:
+            t.ws.delete_rows(idx + 2)  # +1 header, +1 to 1-based
+            t._invalidate()  # noqa: SLF001 (internal cache reset)
+            return True
+    return False

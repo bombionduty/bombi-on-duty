@@ -160,7 +160,7 @@ def process_and_store(
     Returns the stored Evidence row (with keys 'Metadata Result',
     'Possible Duplicate', 'Review Status' filled in).
     """
-    from app.services import drive_service  # local import avoids cycle at import time
+    from app.services import storage_service  # local import avoids cycle at import time
 
     operating_date = clock.parse_date(str(task["Date"]))
     item_type = str(task_item.get("Item Type"))
@@ -185,8 +185,8 @@ def process_and_store(
     elif meta_result == constants.META_REVIEW:
         review_status = "Review Recommended"
 
-    # Upload to Drive.
-    up = drive_service.upload_bytes(
+    # Save to the configured storage backend (local disk by default).
+    up = storage_service.save_bytes(
         stored_bytes, filename, mime_type, operating_date, str(task["Checklist Type"])
     )
 

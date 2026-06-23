@@ -16,7 +16,7 @@ from app import clock, constants
 from app.config import get_settings
 from app.repositories import evidence_repo, staff_repo
 from app.repositories.base import as_bool
-from app.services import drive_service
+from app.services import storage_service
 from app.telegram import notify
 
 log = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ async def send_evidence(date_iso: str, checklist_type: str | None = None) -> int
         if not file_id:
             continue
         try:
-            data = drive_service.download_bytes(file_id)
+            data = storage_service.read_bytes(file_id)
         except Exception as e:
             log.warning("Drive download failed for %s: %s", ev.get("Evidence ID"), e)
             continue

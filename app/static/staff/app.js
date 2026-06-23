@@ -329,7 +329,11 @@ async function loadRecovery() {
     const btn = document.querySelector(`[data-rgallery="${it.task_item_id}"]`);
     const fi = document.querySelector(`[data-rfile="${it.task_item_id}"]`);
     btn.onclick = () => fi.click();
-    fi.onchange = () => { if (fi.files[0]) recUpload(it, fi.files[0]); };
+    fi.onchange = () => {
+      const f = fi.files[0];
+      fi.value = "";  // reset so re-picking the same file works
+      if (f) recUpload(it, f);
+    };
   });
   document.getElementById("recSubmit").onclick = recSubmit;
 }
@@ -339,12 +343,17 @@ async function recUpload(it, file) {
   fd.append("task_item_id", it.task_item_id);
   fd.append("capture_source", "Gallery Fallback");
   fd.append("file", file, file.name || "recovery.jpg");
+  const card = document.getElementById(`rcard_${it.task_item_id}`);
+  const pill = card.querySelector(".pill");
+  pill.className = "pill warn"; pill.textContent = "Uploading…";
   try {
     await api(`/api/recovery/${STATE.taskId}/upload`, { method: "POST", form: fd });
-    const card = document.getElementById(`rcard_${it.task_item_id}`);
-    card.querySelector(".pill").className = "pill ok";
-    card.querySelector(".pill").textContent = "Recovered";
-  } catch (e) { showError(e.message); }
+    pill.className = "pill ok"; pill.textContent = "✓ Recovered";
+    flash(`✅ Uploaded: ${it.name}`);
+  } catch (e) {
+    pill.className = "pill bad"; pill.textContent = "Failed";
+    toast("Upload failed: " + (e.message || "please try again"));
+  }
 }
 
 async function recSubmit() {

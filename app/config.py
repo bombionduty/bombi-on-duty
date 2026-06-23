@@ -51,6 +51,13 @@ class Settings(BaseSettings):
         None, alias="GOOGLE_SERVICE_ACCOUNT_JSON_B64"
     )
 
+    # ---- Evidence storage ----
+    # "local" stores photos on the server's disk (works with a personal Google
+    # account). "drive" uploads to Google Drive (needs a Workspace Shared Drive,
+    # because plain service accounts have no Drive storage quota).
+    storage_backend: str = Field("local", alias="STORAGE_BACKEND")
+    storage_dir: str = Field("data/evidence", alias="STORAGE_DIR")
+
     # ---- App ----
     app_base_url: str = Field(..., alias="APP_BASE_URL")
     secret_key: str = Field(..., alias="SECRET_KEY")

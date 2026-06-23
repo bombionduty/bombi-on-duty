@@ -12,6 +12,9 @@ services:
     restart: unless-stopped
     expose:
       - "8000"
+    volumes:
+      # Persist uploaded evidence (photos/screenshots) across redeploys.
+      - app_data:/app/data
 
   caddy:
     image: caddy:2
@@ -31,3 +34,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  app_data:

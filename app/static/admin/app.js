@@ -107,17 +107,27 @@ const PAGE_FN = {
   /* --------------------------------------------------------- CHECKLISTS */
   async checklists(app) {
     const types = ["Opening Check", "Opener Handover", "Closing Check"];
-    let h = `<h1>Checklists</h1>`;
+    let h = `<h1>Checklists</h1><p class="sub">Edit a name/type, reorder, or delete. Changes apply to <b>future</b> tasks only.</p>`;
     for (const t of types) {
       const d = await api(`/api/admin/checklists?type=${encodeURIComponent(t)}`);
       h += `<h2>${esc(t)}</h2>`;
       d.items.forEach(it => {
-        h += `<div class="card"><div class="row"><strong>${esc(it["Item Name"])}</strong>
-          <span class="pill ${isTrue(it.Active)?"ok":"warn"}">${esc(it["Item Type"])}</span></div>
-          <div class="muted">${isTrue(it.Required)?"Required":"Optional"} ${it["Days of Week"]?("• "+esc(it["Days of Week"])):""}</div>
-          ${isTrue(it.Active)?`<button class="ghost" onclick="archiveItem('${esc(it["Item ID"])}')">Archive</button>`:""}</div>`;
+        const id = esc(it["Item ID"]);
+        h += `<div class="card">
+          <label>Item name</label><input id="in_${id}" value="${esc(it["Item Name"])}"/>
+          <label>Type</label>${typeSelect("ity_"+id, it["Item Type"])}
+          <label>Sort order</label><input id="iso_${id}" inputmode="numeric" value="${esc(it["Sort Order"])}"/>
+          <label><input type="checkbox" id="ir_${id}" ${isTrue(it.Required)?"checked":""} style="width:auto"/> Required</label>
+          <label><input type="checkbox" id="ia_${id}" ${isTrue(it.Active)?"checked":""} style="width:auto"/> Active</label>
+          <button onclick="saveItem('${id}')">💾 Save</button>
+          <button class="ghost" onclick="deleteItem('${id}','${esc(it["Item Name"])}')">🗑 Delete</button>
+        </div>`;
       });
-      h += `<button class="ghost" onclick="addItem('${esc(t)}')">+ Add item to ${esc(t)}</button>`;
+      h += `<div class="card"><h2>➕ Add to ${esc(t)}</h2>
+        <label>Item name</label><input id="ni_${esc(t)}"/>
+        <label>Type</label>${typeSelect("nt_"+esc(t), "Attestation")}
+        <label><input type="checkbox" id="nr_${esc(t)}" checked style="width:auto"/> Required</label>
+        <button onclick="addItem('${esc(t)}')">Add item</button></div>`;
     }
     app.innerHTML = h;
   },
@@ -248,12 +258,34 @@ async function saveStaff(id) {
 async function reactivate(id) { await api(`/api/admin/staff`, { method:"POST", body:{action:"update", staff_id:id, changes:{"Active":"TRUE","Date Deactivated":""}}}); go("staff"); }
 async function deactivate(id) { await api(`/api/admin/staff`, { method:"POST", body:{action:"deactivate", staff_id:id}}); go("staff"); }
 async function assignOIC(id) { await api(`/api/admin/staff`, { method:"POST", body:{action:"assign_oic", staff_id:id}}); toast("OIC assigned"); go("staff"); }
+const ITEM_TYPES = ["Attestation", "Live Camera Photo", "Gallery Screenshot", "Number Entry", "Short Text Entry"];
+function typeSelect(id, current) {
+  return `<select id="${id}">` + ITEM_TYPES.map(t =>
+    `<option ${t===current?"selected":""}>${t}</option>`).join("") + `</select>`;
+}
+async function saveItem(id) {
+  await api(`/api/admin/checklists`, { method:"POST", body:{ action:"update", item_id:id, changes:{
+    "Item Name": val("in_"+id),
+    "Item Type": val("ity_"+id),
+    "Sort Order": val("iso_"+id) || "0",
+    "Required": document.getElementById("ir_"+id).checked ? "TRUE" : "FALSE",
+    "Active": document.getElementById("ia_"+id).checked ? "TRUE" : "FALSE",
+  }}});
+  toast("Saved ✅"); go("checklists");
+}
+async function deleteItem(id, name) {
+  if (!confirm(`Delete "${name}"? It will be removed from future checklists. Past records keep their own copy.`)) return;
+  await api(`/api/admin/checklists`, { method:"POST", body:{action:"delete", item_id:id}});
+  toast("Deleted 🗑"); go("checklists");
+}
 async function archiveItem(id) { await api(`/api/admin/checklists`, { method:"POST", body:{action:"archive", item_id:id}}); go("checklists"); }
 async function addItem(type) {
-  const name = prompt("Item name?"); if (!name) return;
-  const item_type = prompt("Type: Attestation / Live Camera Photo / Gallery Screenshot / Number Entry / Short Text Entry", "Attestation");
-  await api(`/api/admin/checklists`, { method:"POST", body:{ action:"add", checklist_type:type, item_name:name, item_type, required:true }});
-  go("checklists");
+  const name = val("ni_"+type);
+  if (!name) { toast("Enter an item name first."); return; }
+  await api(`/api/admin/checklists`, { method:"POST", body:{ action:"add",
+    checklist_type:type, item_name:name, item_type: val("nt_"+type),
+    required: document.getElementById("nr_"+type).checked }});
+  toast("Added ✅"); go("checklists");
 }
 async function saveTiming(ct, dt) {
   await api(`/api/admin/timing`, { method:"POST", body:{

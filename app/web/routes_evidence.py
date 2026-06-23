@@ -17,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from app import constants
 from app.repositories import evidence_repo, staff_repo
 from app.security import InitDataError, extract_user_id, validate_init_data
-from app.services import drive_service
+from app.services import storage_service
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/evidence")
@@ -54,7 +54,7 @@ async def evidence_image(evidence_id: str, auth: str = Query(...)):
     if not file_id:
         raise HTTPException(404, "No stored file.")
     try:
-        data = drive_service.download_bytes(file_id)
+        data = storage_service.read_bytes(file_id)
     except Exception as e:
         log.warning("Evidence download failed: %s", e)
         raise HTTPException(502, "Could not retrieve evidence from storage.")
