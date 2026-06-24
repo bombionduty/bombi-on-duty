@@ -25,14 +25,35 @@ def test_dashboard_and_card_use_same_format(monkeypatch):
 
 
 # --------------------------------------------------- recurring-safe cards
-def test_recurring_card_has_skip_not_cancel():
-    flat = [b.callback_data for row in keyboards.task_card_kb("OT1", True).inline_keyboard for b in row]
-    assert "own:sk:OT1" in flat and not any("own:cxt" in c for c in flat)
+def _flat(markup):
+    return [b.callback_data for row in markup.inline_keyboard for b in row]
 
 
-def test_oneoff_card_has_cancel_not_skip():
-    flat = [b.callback_data for row in keyboards.task_card_kb("OT1", False).inline_keyboard for b in row]
-    assert "own:cxt:OT1" in flat and not any("own:sk" in c for c in flat)
+def test_main_card_is_compact_with_more():
+    flat = _flat(keyboards.task_card_kb("OT1", False))
+    assert flat == ["own:dn:OT1", "own:rs:OT1", "own:more:OT1"]
+
+
+def test_recurring_more_menu_has_skip_not_cancel():
+    flat = _flat(keyboards.task_more_kb("OT1", True))
+    assert "own:sk:OT1" in flat and "own:hide:OT1" in flat
+    assert not any("own:cxt" in c for c in flat)
+
+
+def test_oneoff_more_menu_has_cancel_not_skip():
+    flat = _flat(keyboards.task_more_kb("OT1", False))
+    assert "own:cxt:OT1" in flat and "own:hide:OT1" in flat
+    assert not any("own:sk" in c for c in flat)
+
+
+def test_draft_meta_tracks_message_ids():
+    from app.owner import draft
+    bid = draft.create([{"title": "A"}], capture_chat=123, capture_msg=99)
+    draft.set_confirm_msg(bid, 100)
+    m = draft.meta(bid)
+    assert m["capture_chat"] == 123 and m["capture_msg"] == 99 and m["confirm_msg"] == 100
+    draft.pop(bid)
+    assert draft.meta(bid) == {}  # meta cleared on pop
 
 
 def test_cancelled_not_on_dashboard():
@@ -111,6 +132,30 @@ def test_reschedule_does_not_touch_recurrence(monkeypatch):
     service.reschedule("OT1", date(2026, 6, 26))
     assert captured.get("Due Date") == "2026-06-26"
     assert "Recurrence ID" not in captured  # the recurring rule is untouched
+
+
+def test_safe_delete_never_crashes_without_permission():
+    import asyncio
+    from app.owner import handlers
+
+    class _Bot:
+        def __init__(self, fail):
+            self.fail = fail
+            self.calls = 0
+
+        async def delete_message(self, chat_id, message_id):
+            self.calls += 1
+            if self.fail:
+                raise Exception("not enough rights to delete")
+
+    class _Ctx:
+        pass
+
+    ok = _Ctx(); ok.bot = _Bot(False)
+    assert asyncio.run(handlers._safe_delete(ok, 1, 2)) is True
+    bad = _Ctx(); bad.bot = _Bot(True)
+    assert asyncio.run(handlers._safe_delete(bad, 1, 2)) is False     # missing perm -> no crash
+    assert asyncio.run(handlers._safe_delete(ok, 1, None)) is False   # no id -> no-op
 
 
 def test_cancel_sets_status_and_logs_history(monkeypatch):

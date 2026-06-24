@@ -70,15 +70,24 @@ def edit_who_kb(batch_id: str, idx: int) -> InlineKeyboardMarkup:
 
 
 def task_card_kb(task_id: str, is_recurring: bool = False) -> InlineKeyboardMarkup:
-    """Everyday task-card actions. Recurring occurrences get a safe Skip instead
-    of a destructive Cancel Task (which could imply deleting the whole schedule)."""
-    third = (InlineKeyboardButton("⏭ Skip This One", callback_data=f"own:sk:{task_id}")
-             if is_recurring else
-             InlineKeyboardButton("🗑 Cancel Task", callback_data=f"own:cxt:{task_id}"))
+    """Compact everyday card: Done · Reschedule · ⋯ More."""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Done", callback_data=f"own:dn:{task_id}"),
          InlineKeyboardButton("📅 Reschedule", callback_data=f"own:rs:{task_id}")],
-        [third],
+        [InlineKeyboardButton("⋯ More", callback_data=f"own:more:{task_id}")],
+    ])
+
+
+def task_more_kb(task_id: str, is_recurring: bool = False) -> InlineKeyboardMarkup:
+    """⋯ More: Hide Card + (Skip for recurring | Cancel for one-off) + Back.
+    Recurring occurrences never get a destructive Cancel Task."""
+    second = (InlineKeyboardButton("⏭ Skip This One", callback_data=f"own:sk:{task_id}")
+              if is_recurring else
+              InlineKeyboardButton("🗑 Cancel Task", callback_data=f"own:cxt:{task_id}"))
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🫥 Hide Card", callback_data=f"own:hide:{task_id}")],
+        [second],
+        [InlineKeyboardButton("⬅️ Back", callback_data=f"own:back:{task_id}")],
     ])
 
 
@@ -109,6 +118,7 @@ def dashboard_kb(buckets=None) -> InlineKeyboardMarkup:
                 f"✅ {title}", callback_data=f"own:dd:{t.get('Task ID')}")])
     rows.append([InlineKeyboardButton("➕ Add Task", callback_data="own:hint:add"),
                  InlineKeyboardButton("📋 Manage Today", callback_data="own:mt:open")])
-    rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="own:dash:refresh"),
+    rows.append([InlineKeyboardButton("🧹 Clean Chat", callback_data="own:clean:go"),
                  InlineKeyboardButton("⚙️ Settings", callback_data="own:setup:open")])
+    rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="own:dash:refresh")])
     return InlineKeyboardMarkup(rows)

@@ -112,9 +112,11 @@ async def on_owner_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return await msg.reply_text(
             "🍓 I didn't catch a task there. Try e.g. <i>\"film the Biscoff video tomorrow\"</i>.",
             parse_mode="HTML")
-    batch = draft.create(parsed)
-    await msg.reply_text(messages.confirm_card(parsed), parse_mode="HTML",
-                         reply_markup=keyboards.confirm_kb(batch))
+    batch = draft.create(parsed, capture_chat=msg.chat.id, capture_msg=msg.message_id)
+    sent = await msg.reply_text(messages.confirm_card(parsed), parse_mode="HTML",
+                                reply_markup=keyboards.confirm_kb(batch))
+    if sent:
+        draft.set_confirm_msg(batch, sent.message_id)
 
 
 def _parse_typed_date(text: str):
@@ -177,9 +179,13 @@ async def _handle_await_input(update: Update, ctx, text: str) -> None:
     elif kind == "date_batch":
         d = _parse_typed_date(text)
         draft.apply_shared_date(batch, d.isoformat() if d else "")
+        meta = draft.meta(batch)
         parsed = draft.pop(batch)
         created = service.create_from_parsed(parsed)
-        await update.message.reply_text("✅ Saved — your task card(s) below 👇")
+        # tidy: the typed-date message, the confirm/nodate card, the capture msg
+        await _safe_delete(ctx, update.effective_chat.id, update.message.message_id)
+        await _safe_delete(ctx, meta.get("capture_chat"), meta.get("confirm_msg"))
+        await _safe_delete(ctx, meta.get("capture_chat"), meta.get("capture_msg"))
         await _send_cards(ctx, update.effective_chat.id, created)
         await dashboard.refresh()
         return
@@ -188,19 +194,40 @@ async def _handle_await_input(update: Update, ctx, text: str) -> None:
                                     reply_markup=keyboards.confirm_kb(batch))
 
 
+# ============================================================ cleanup helpers
+async def _safe_delete(ctx, chat_id, message_id) -> bool:
+    """Delete a message; never raise (missing Delete permission / too old / gone)."""
+    if not chat_id or not message_id:
+        return False
+    try:
+        await ctx.bot.delete_message(chat_id, int(message_id))
+        return True
+    except Exception as e:
+        log.debug("owner cleanup: could not delete %s: %s", message_id, e)
+        return False
+
+
+async def _close_card(ctx, q, fallback_html: str) -> None:
+    """Remove a finished task card: delete it, or (if too old) shrink it to a
+    tiny final state with no buttons. Never raises."""
+    if await _safe_delete(ctx, q.message.chat_id, q.message.message_id):
+        return
+    try:
+        await q.edit_message_text(fallback_html, parse_mode="HTML")
+    except Exception:
+        pass
+
+
 # ============================================================ callbacks
 async def _send_cards(ctx, chat_id, created: list) -> None:
-    """After Confirm: send one actionable card per saved task (each needs its own
-    inline buttons), with a single header when there are several."""
-    if not created:
-        return
-    if len(created) > 1:
-        await ctx.bot.send_message(chat_id, messages.added_header(len(created)),
-                                   parse_mode="HTML")
+    """After Confirm: send one actionable card per saved task and remember each
+    card's message id (so Clean Chat can tidy any strays later)."""
     for t in created:
-        await ctx.bot.send_message(
+        sent = await ctx.bot.send_message(
             chat_id, messages.task_card(t), parse_mode="HTML",
             reply_markup=keyboards.task_card_kb(t["Task ID"], bool(t.get("Recurrence ID"))))
+        if sent:
+            repo.update_task(t["Task ID"], {"Source Message ID": str(sent.message_id)})
 
 
 def _task_detail(p: dict) -> str:
@@ -228,18 +255,21 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             await q.answer()
             return await q.edit_message_text(messages.nodate_question(len(undated)),
                                              parse_mode="HTML", reply_markup=keyboards.nodate_kb(batch))
+        meta = draft.meta(batch)
         draft.pop(batch, None)
-        created = service.create_from_parsed(parsed)
+        created = service.create_from_parsed(parsed)  # SAVE before any cleanup
         await q.answer("Added ✅")
-        await q.edit_message_text("✅ Saved — your task card(s) below 👇")
+        # Clean up: remove the draft card + my original capture message.
+        await _safe_delete(ctx, q.message.chat_id, q.message.message_id)
+        await _safe_delete(ctx, meta.get("capture_chat"), meta.get("capture_msg"))
         await _send_cards(ctx, q.message.chat_id, created)
         await dashboard.refresh()
         return
 
     if action == "cx":
         draft.pop(parts[2], None)
-        await q.answer("Cancelled")
-        return await q.edit_message_text("🗑 Cancelled — nothing was saved.")
+        await q.answer("Cancelled — nothing saved")
+        return await _safe_delete(ctx, q.message.chat_id, q.message.message_id)
 
     if action == "nd":
         batch, key = parts[2], parts[3]
@@ -253,6 +283,7 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
                 q.message.chat_id, "📅 Type a date (e.g. <code>2026-07-15</code> or "
                 "<code>next friday</code>):", parse_mode="HTML",
                 reply_markup=ForceReply(input_field_placeholder="e.g. 2026-07-15"))
+        meta = draft.meta(batch)
         draft.pop(batch, None)
         when = service.resolve_when(key)
         for p in parsed:
@@ -260,7 +291,8 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
                 p["due"] = when.isoformat() if when else ""
         created = service.create_from_parsed(parsed)
         await q.answer("Added ✅")
-        await q.edit_message_text("✅ Saved — your task card(s) below 👇")
+        await _safe_delete(ctx, q.message.chat_id, q.message.message_id)
+        await _safe_delete(ctx, meta.get("capture_chat"), meta.get("capture_msg"))
         await _send_cards(ctx, q.message.chat_id, created)
         await dashboard.refresh()
         return
@@ -375,22 +407,45 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
                                "🌸 Nothing overdue or due today!")
         return
 
+    # ---------- Clean Chat ----------
+    if action == "clean":
+        n = 0
+        gid = routing.owner_group_id()
+        for t in repo.all_tasks():
+            if str(t.get("Status")) in (oc.ST_COMPLETED, oc.ST_CANCELLED, oc.ST_SKIPPED):
+                mid = t.get("Source Message ID")
+                if mid and await _safe_delete(ctx, gid, mid):
+                    repo.update_task(str(t.get("Task ID")), {"Source Message ID": ""})
+                    n += 1
+        return await q.answer(f"🧹 Cleaned {n} card(s)." if n else "✨ Already tidy!")
+
     # ---------- task-card actions ----------
-    if action in ("dn", "rs", "rx", "sk", "cxt", "cxy", "cxk"):
+    if action in ("dn", "rs", "rx", "sk", "cxt", "cxy", "cxk", "more", "back", "hide"):
         task_id = parts[2]
         task = repo.get_task(task_id)
         if not task:
             return await q.answer("Task not found.", show_alert=True)
         rec = bool(task.get("Recurrence ID"))
-        # Stale-button guard: a completed/cancelled task can't be changed.
-        if str(task.get("Status")) in (oc.ST_COMPLETED, oc.ST_CANCELLED) and action != "cxk":
+        title = messages.esc(task.get("Title"))
+        # Stale-button guard: a finished task can't be changed.
+        if str(task.get("Status")) in (oc.ST_COMPLETED, oc.ST_CANCELLED, oc.ST_SKIPPED) and action != "cxk":
             return await q.answer(f"Already {str(task.get('Status')).lower()}.", show_alert=True)
 
+        if action == "more":
+            await q.answer()
+            return await q.edit_message_reply_markup(reply_markup=keyboards.task_more_kb(task_id, rec))
+        if action == "back":
+            await q.answer()
+            return await q.edit_message_reply_markup(reply_markup=keyboards.task_card_kb(task_id, rec))
+        if action == "hide":
+            repo.update_task(task_id, {"Source Message ID": ""})
+            await q.answer("🫥 Hidden — still on your dashboard.")
+            return await _safe_delete(ctx, q.message.chat_id, q.message.message_id)
         if action == "dn":
             res = service.complete(task_id)
-            await q.answer("Done ✅" if res else "Already done")
-            await q.edit_message_text(messages.card_completed(repo.get_task(task_id) or task),
-                                      parse_mode="HTML")
+            repo.update_task(task_id, {"Source Message ID": ""})
+            await q.answer("✅ Done! Dashboard updated." if res else "Already done")
+            await _close_card(ctx, q, f"✅ <b>Done — {title}</b>")
             await dashboard.refresh()
             return
         if action == "rs":
@@ -408,28 +463,32 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             if when:
                 service.reschedule(task_id, when)
             fresh = repo.get_task(task_id) or task
-            await q.answer("Rescheduled 📅")
-            await q.edit_message_text(messages.card_rescheduled(fresh), parse_mode="HTML",
-                                      reply_markup=keyboards.task_card_kb(task_id, rec))
+            await q.answer("📅 Rescheduled to " + messages.fmt_due(
+                str(fresh.get("Due Date") or ""), str(fresh.get("Due Time") or "")))
+            await q.edit_message_text(
+                messages.task_card(fresh, header=f"{messages.cat_emoji(fresh)} <b>RESCHEDULED</b>"),
+                parse_mode="HTML", reply_markup=keyboards.task_card_kb(task_id, rec))
             await dashboard.refresh()
             return
         if action == "sk":
             service.skip(task_id)
-            await q.answer("Skipped ⏭")
-            await q.edit_message_text(messages.card_skipped(task), parse_mode="HTML")
+            repo.update_task(task_id, {"Source Message ID": ""})
+            await q.answer("⏭ Skipped. The schedule will continue.")
+            await _close_card(ctx, q, f"⏭ <b>Skipped — {title}</b>")
             await dashboard.refresh()
             return
         if action == "cxt":  # ask for confirmation
             await q.answer()
             return await q.edit_message_text(messages.cancel_confirm(task), parse_mode="HTML",
                                              reply_markup=keyboards.cancel_confirm_kb(task_id))
-        if action == "cxy":  # confirmed cancel
+        if action == "cxy":  # confirmed cancel -> card disappears
             service.cancel(task_id)
-            await q.answer("Cancelled 🗑")
-            await q.edit_message_text(messages.card_cancelled(task), parse_mode="HTML")
+            repo.update_task(task_id, {"Source Message ID": ""})
+            await q.answer("🗑 Task cancelled.")
+            await _close_card(ctx, q, f"🗑 <b>Cancelled — {title}</b>")
             await dashboard.refresh()
             return
-        if action == "cxk":  # keep task -> restore card
+        if action == "cxk":  # keep -> restore the compact card
             await q.answer("Kept ↩️")
             return await q.edit_message_text(messages.task_card(task), parse_mode="HTML",
                                              reply_markup=keyboards.task_card_kb(task_id, rec))
@@ -456,6 +515,7 @@ async def cmd_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await _send_task_cards(ctx, update.effective_chat.id,
                            b[oc.B_OVERDUE] + b[oc.B_DUE_TODAY],
                            "🌸 Nothing overdue or due today!")
+    await _safe_delete(ctx, update.effective_chat.id, update.effective_message.message_id)
 
 
 async def cmd_week(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -464,13 +524,14 @@ async def cmd_week(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     b = service.build_buckets()
     tasks = b[oc.B_OVERDUE] + b[oc.B_DUE_TODAY] + b[oc.B_UPCOMING] + b[oc.B_WAITING]
     await _send_task_cards(ctx, update.effective_chat.id, tasks)
+    await _safe_delete(ctx, update.effective_chat.id, update.effective_message.message_id)
 
 
 async def cmd_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _owner_ok(update):
         return
     await dashboard.refresh()
-    await update.effective_message.reply_text("🍓 Dashboard refreshed above ⬆️")
+    await _safe_delete(ctx, update.effective_chat.id, update.effective_message.message_id)
 
 
 async def cmd_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -482,6 +543,7 @@ async def cmd_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(
         messages.settings_text(s), parse_mode="HTML",
         reply_markup=keyboards.settings_kb(s[oc.SET_PAUSED] == "true"))
+    await _safe_delete(ctx, update.effective_chat.id, update.effective_message.message_id)
 
 
 def register(application) -> None:
