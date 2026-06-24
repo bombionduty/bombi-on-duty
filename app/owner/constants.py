@@ -6,6 +6,7 @@ ST_OPEN = "Open"
 ST_WAITING = "Waiting"
 ST_COMPLETED = "Completed"
 ST_SKIPPED = "Skipped"
+ST_CANCELLED = "Cancelled"
 
 # Derived buckets (computed from due date for Open tasks) — for display only.
 B_OVERDUE = "OVERDUE"
@@ -56,10 +57,12 @@ SET_WEEKLY_SUMMARY = "owner_weekly_summary"           # "SUN 19:00"
 SET_DASHBOARD_MSG_ID = "owner_dashboard_message_id"
 SET_GREETING_NAME = "owner_greeting_name"
 SET_PAUSED = "owner_reminders_paused"                 # "true"/"false"
+SET_LEAD_DAYS = "owner_bill_lead_days"                # advance reminder days
 
 DEFAULTS = {
     SET_DAILY_SUMMARY: "09:00",
     SET_WEEKLY_SUMMARY: "SUN 19:00",
     SET_GREETING_NAME: "Lesha",
     SET_PAUSED: "false",
+    SET_LEAD_DAYS: "3",
 }

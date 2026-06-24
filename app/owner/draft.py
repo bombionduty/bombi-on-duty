@@ -11,12 +11,24 @@ from __future__ import annotations
 import uuid
 
 _drafts: dict[str, list] = {}
+_meta: dict[str, dict] = {}   # batch -> {capture_chat, capture_msg, confirm_msg}
 
 
-def create(tasks: list) -> str:
+def create(tasks: list, capture_chat=None, capture_msg=None) -> str:
     bid = uuid.uuid4().hex[:8]
     _drafts[bid] = tasks
+    _meta[bid] = {"capture_chat": capture_chat, "capture_msg": capture_msg,
+                  "confirm_msg": None}
     return bid
+
+
+def set_confirm_msg(bid: str, message_id) -> None:
+    if bid in _meta:
+        _meta[bid]["confirm_msg"] = message_id
+
+
+def meta(bid: str) -> dict:
+    return _meta.get(bid, {})
 
 
 def get(bid: str):
@@ -32,6 +44,7 @@ def discard(bid: str) -> None:
 
 
 def pop(bid: str, default=None):
+    _meta.pop(bid, None)
     return _drafts.pop(bid, default)
 
 
