@@ -49,6 +49,17 @@ def edit_date_kb(batch_id: str, idx: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+def settings_kb(paused: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🌅 Daily time", callback_data="own:set:daily"),
+         InlineKeyboardButton("🗓 Weekly", callback_data="own:set:weekly")],
+        [InlineKeyboardButton("⏰ Bill lead days", callback_data="own:set:lead"),
+         InlineKeyboardButton("🍓 Name", callback_data="own:set:name")],
+        [InlineKeyboardButton("▶️ Resume reminders" if paused else "⏸ Pause reminders",
+                              callback_data="own:set:pause")],
+    ])
+
+
 def edit_who_kb(batch_id: str, idx: int) -> InlineKeyboardMarkup:
     opts = [("Me", ""), ("Alex", "Alex"), ("Accountant", "Accountant"),
             ("Finance", "Finance")]
@@ -82,8 +93,16 @@ def waiting_kb(task_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def dashboard_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Add Task", callback_data="own:hint:add")],
-        [InlineKeyboardButton("📋 Refresh", callback_data="own:dash:refresh")],
-    ])
+def dashboard_kb(buckets=None) -> InlineKeyboardMarkup:
+    """Dashboard with one-tap ✅ Done buttons for overdue + due-today tasks."""
+    rows = []
+    if buckets:
+        from app.owner import constants as oc
+        due = (buckets.get(oc.B_OVERDUE, []) + buckets.get(oc.B_DUE_TODAY, []))[:8]
+        for t in due:
+            title = str(t.get("Title") or "")[:28]
+            rows.append([InlineKeyboardButton(
+                f"✅ {title}", callback_data=f"own:dd:{t.get('Task ID')}")])
+    rows.append([InlineKeyboardButton("📋 Refresh", callback_data="own:dash:refresh"),
+                 InlineKeyboardButton("⚙️ Settings", callback_data="own:setup:open")])
+    return InlineKeyboardMarkup(rows)

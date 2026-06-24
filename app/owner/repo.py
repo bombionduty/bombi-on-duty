@@ -86,6 +86,7 @@ def add_task(
     responsible: str = "",
     status: str = oc.ST_OPEN,
     source_message_id: str = "",
+    recurrence_id: str = "",
 ) -> dict:
     row = {
         "Task ID": _gen("OT"),
@@ -97,7 +98,7 @@ def add_task(
         "Due Date": due_date,
         "Due Time": due_time,
         "Original Due Date": due_date,
-        "Recurrence ID": "",
+        "Recurrence ID": recurrence_id,
         "Workflow": "",
         "Created At": _now(),
         "Completed At": "",
@@ -130,6 +131,43 @@ def active_tasks() -> list[dict]:
 # ----------------------------------------------------------- AdminHistory
 def _history():
     return client.table(schema.ADMIN_HISTORY)
+
+
+def open_occurrences(recurrence_id: str) -> list[dict]:
+    return [t for t in all_tasks()
+            if str(t.get("Recurrence ID")) == str(recurrence_id)
+            and str(t.get("Status")) in (oc.ST_OPEN, oc.ST_WAITING)]
+
+
+# ----------------------------------------------------------- AdminRecurring
+def _recurring():
+    return client.table(schema.ADMIN_RECURRING)
+
+
+def add_recurring(title: str, category: str, rule: str, *, time: str = "",
+                  lead_days: str = "", responsible: str = "") -> str:
+    rid = _gen("OR")
+    _recurring().append({
+        "Recurrence ID": rid, "Title": title, "Category": category,
+        "Responsible": responsible, "Rule": rule, "Days Of Week": "",
+        "Day Of Month": "", "Time": time, "Lead Days": lead_days,
+        "Active": "TRUE", "Last Generated": "", "Notes": "",
+        "Created At": _now(), "Updated At": _now(),
+    })
+    return rid
+
+
+def get_recurring(rid: str) -> dict | None:
+    return _recurring().find("Recurrence ID", rid)
+
+
+def active_recurring() -> list[dict]:
+    from app.repositories.base import as_bool
+    return [r for r in _recurring().all() if as_bool(r.get("Active"))]
+
+
+def update_recurring(rid: str, changes: dict) -> bool:
+    return _recurring().update("Recurrence ID", rid, {**changes, "Updated At": _now()})
 
 
 def log_history(task_id: str, action: str, detail: str = "") -> None:

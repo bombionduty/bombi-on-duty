@@ -56,13 +56,13 @@ def confirm_card(tasks: list[dict]) -> str:
         who = f" · 👤 {esc(t['responsible'])}" if t.get("responsible") else ""
         recur = ""
         if t.get("recurrence"):
+            from app.owner import recurrence as _rec
             has_recur = True
-            recur = "  🔁"
+            recur = f"  🔁 {esc(_rec.describe(t['recurrence']))}"
         lines.append(f"\n{emoji} <b>{esc(t['title'])}</b>{recur}\nDue: {esc(due_str)}{who}")
     foot = "\n\nLook right? You can ✏️ Edit any task before saving."
     if has_recur:
-        foot += ("\n\n🔁 <i>Auto-repeat isn't on yet (coming in Phase 2). I'll save "
-                 "recurring items as a one-time task on the next date for now.</i>")
+        foot += "\n\n🔁 <i>Recurring tasks will auto-repeat on schedule.</i>"
     return head + "".join(lines) + foot
 
 
@@ -132,6 +132,19 @@ def weekly_summary(stats: dict, upcoming: list[dict]) -> str:
         for t in upcoming[:6]:
             lines.append(f"• {esc(t.get('Title'))} — {_due_label(t)}")
     return "\n".join(lines)
+
+
+def settings_text(s: dict) -> str:
+    paused = "ON ⏸" if str(s.get(oc.SET_PAUSED)) == "true" else "off"
+    return (
+        "⚙️ <b>Owner Settings</b>\n\n"
+        f"🌅 Daily summary: <b>{esc(s.get(oc.SET_DAILY_SUMMARY))}</b>\n"
+        f"🗓 Weekly summary: <b>{esc(s.get(oc.SET_WEEKLY_SUMMARY))}</b>\n"
+        f"⏰ Bill advance reminder: <b>{esc(s.get(oc.SET_LEAD_DAYS))} day(s)</b>\n"
+        f"🍓 Greeting name: <b>{esc(s.get(oc.SET_GREETING_NAME))}</b>\n"
+        f"🔕 Reminders paused: <b>{paused}</b>\n\n"
+        "Tap a setting to change it."
+    )
 
 
 def nudge(task: dict) -> str:

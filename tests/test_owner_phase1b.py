@@ -167,9 +167,10 @@ def test_dashboard_no_saved_id_creates_and_saves(monkeypatch):
 
 
 # --------------------------------------------------------- recurrence label
-def test_recurrence_is_labeled_not_silent(monkeypatch):
+def test_recurrence_is_labeled_functional(monkeypatch):
     _fix_today(monkeypatch, date(2026, 6, 24))
     parsed = parser.parse("every sunday submit the weekly OR")
     assert parsed[0]["recurrence"].startswith("weekly")
     card = messages.confirm_card(parsed)
-    assert "Phase 2" in card  # clearly flagged as not auto-repeating yet
+    # Phase 2A: recurrence works -> card shows it will repeat, not a "Phase 2" caveat.
+    assert "auto-repeat" in card.lower() and "Phase 2" not in card

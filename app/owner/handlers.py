@@ -137,11 +137,23 @@ async def _handle_await_input(update: Update, text: str) -> None:
     state = _await_input.pop(uid, None)
     if not state:
         return
+    kind = state["kind"]
+
+    # ---- settings edits (no draft involved) ----
+    if kind.startswith("setting:"):
+        key = kind.split(":", 1)[1]
+        val = text.strip()
+        keymap = {"daily": oc.SET_DAILY_SUMMARY, "weekly": oc.SET_WEEKLY_SUMMARY,
+                  "lead": oc.SET_LEAD_DAYS, "name": oc.SET_GREETING_NAME}
+        if key in keymap and val:
+            repo.set_setting(keymap[key], val)
+            return await update.message.reply_text(f"✅ Saved. ({val})")
+        return await update.message.reply_text("Hmm, that didn't look valid — try /setup again.")
+
     batch = state["batch"]
     parsed = draft.get(batch)
     if not parsed:
         return await update.message.reply_text("That edit session expired — please resend the task.")
-    kind = state["kind"]
 
     if kind == "title":
         draft.edit_title(batch, state["idx"], text)
@@ -290,6 +302,36 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         return await q.answer("Refreshed 🍓")
     if action == "hint":
         return await q.answer("Just type your task(s) here and I'll catch them!", show_alert=True)
+    if action == "dd":  # one-tap Done from the dashboard (refresh in place)
+        res = service.complete(parts[2])
+        await dashboard.refresh()
+        return await q.answer("Done ✅" if res else "Already done")
+
+    # ---------- settings / setup ----------
+    if action == "setup":
+        s = {k: repo.setting_or_default(k) for k in (
+            oc.SET_DAILY_SUMMARY, oc.SET_WEEKLY_SUMMARY, oc.SET_LEAD_DAYS,
+            oc.SET_GREETING_NAME, oc.SET_PAUSED)}
+        await q.answer()
+        return await q.message.reply_text(
+            messages.settings_text(s), parse_mode="HTML",
+            reply_markup=keyboards.settings_kb(s[oc.SET_PAUSED] == "true"))
+    if action == "set":
+        key = parts[2]
+        if key == "pause":
+            cur = repo.setting_or_default(oc.SET_PAUSED) == "true"
+            repo.set_setting(oc.SET_PAUSED, "false" if cur else "true")
+            return await q.answer("Reminders resumed ▶️" if cur else "Reminders paused ⏸")
+        prompts = {"daily": "🌅 Type the daily summary time (HH:MM, 24h), e.g. 09:00",
+                   "weekly": "🗓 Type weekly summary as DAY HH:MM, e.g. SUN 19:00",
+                   "lead": "⏰ Type bill advance-reminder days, e.g. 3",
+                   "name": "🍓 Type the greeting name, e.g. Lesha"}
+        if key not in prompts:
+            return await q.answer()
+        _await_input[q.from_user.id] = {"kind": f"setting:{key}", "batch": ""}
+        await q.answer()
+        return await ctx.bot.send_message(q.message.chat_id, prompts[key],
+                                          reply_markup=ForceReply())
 
     # ---------- task actions ----------
     if action in ("dn", "rs", "rx", "wt", "wx", "sk"):
@@ -371,10 +413,22 @@ async def cmd_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text("🍓 Dashboard refreshed above ⬆️")
 
 
+async def cmd_setup(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _owner_ok(update):
+        return
+    s = {k: repo.setting_or_default(k) for k in (
+        oc.SET_DAILY_SUMMARY, oc.SET_WEEKLY_SUMMARY, oc.SET_LEAD_DAYS,
+        oc.SET_GREETING_NAME, oc.SET_PAUSED)}
+    await update.effective_message.reply_text(
+        messages.settings_text(s), parse_mode="HTML",
+        reply_markup=keyboards.settings_kb(s[oc.SET_PAUSED] == "true"))
+
+
 def register(application) -> None:
     application.add_handler(CommandHandler("setupowner", cmd_setupowner))
     application.add_handler(CommandHandler("unsetupowner", cmd_unsetupowner))
     application.add_handler(CommandHandler(["owner", "dashboard"], cmd_owner))
+    application.add_handler(CommandHandler(["setup", "settings"], cmd_setup))
     application.add_handler(CommandHandler("today", cmd_today))
     application.add_handler(CommandHandler("week", cmd_week))
     application.add_handler(CallbackQueryHandler(on_owner_callback, pattern=OWNER_CALLBACK_PATTERN))

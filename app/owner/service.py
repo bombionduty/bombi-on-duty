@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from app import clock
 from app.owner import constants as oc
-from app.owner import repo
+from app.owner import recurrence, repo
 
 
 # ----------------------------------------------------------- date resolving
@@ -34,22 +34,80 @@ def resolve_when(key: str) -> date | None:
 def create_from_parsed(parsed: list[dict], source_msg_id: str = "") -> list[dict]:
     created = []
     for p in parsed:
-        # Phase 1 has no recurrence engine: save a ONE-TIME task and just note the
-        # intent (no functional recurrence is stored, so nothing silently dies).
-        note = ""
+        rid = ""
         if p.get("recurrence"):
-            note = f"(said '{p['recurrence']}' — auto-repeat lands in Phase 2)"
-        created.append(repo.add_task(
+            # Real recurring task: register the rule + create the first occurrence.
+            rid = repo.add_recurring(
+                p["title"], p.get("category", oc.CAT_GENERAL), p["recurrence"],
+                time=p.get("due_time", ""), responsible=p.get("responsible", ""))
+        task = repo.add_task(
             p["title"],
             due_date=p.get("due", ""),
             due_time=p.get("due_time", ""),
             category=p.get("category", oc.CAT_GENERAL),
             responsible=p.get("responsible", ""),
             status=oc.ST_OPEN,
-            note=note,
             source_message_id=source_msg_id,
-        ))
+            recurrence_id=rid,
+        )
+        if rid and p.get("due"):
+            repo.update_recurring(rid, {"Last Generated": p["due"]})
+        created.append(task)
     return created
+
+
+def generate_due_recurrences() -> int:
+    """Safety net (run daily): ensure every active recurrence has exactly one
+    open occurrence. Restart-safe + idempotent via the open-occurrence check."""
+    today = clock.today()
+    made = 0
+    for rec in repo.active_recurring():
+        rid = rec.get("Recurrence ID")
+        if not rid or repo.open_occurrences(rid):
+            continue
+        last = rec.get("Last Generated")
+        try:
+            base = clock.parse_date(str(last)) if last else (today - timedelta(days=1))
+        except Exception:
+            base = today - timedelta(days=1)
+        nd = recurrence.next_due(str(rec.get("Rule")), base)
+        if not nd:
+            continue
+        repo.add_task(rec.get("Title"), due_date=nd.isoformat(),
+                      due_time=rec.get("Time", ""), category=rec.get("Category", oc.CAT_GENERAL),
+                      responsible=rec.get("Responsible", ""), recurrence_id=rid)
+        repo.update_recurring(rid, {"Last Generated": nd.isoformat()})
+        made += 1
+    return made
+
+
+def _generate_next(task: dict) -> None:
+    """After a recurring occurrence is completed/skipped, create the next one
+    (exactly one, restart-safe via the open-occurrence check)."""
+    rid = task.get("Recurrence ID")
+    if not rid:
+        return
+    rec = repo.get_recurring(rid)
+    if not rec:
+        return
+    from app.repositories.base import as_bool
+    if not as_bool(rec.get("Active")):
+        return
+    if repo.open_occurrences(rid):
+        return  # one already exists -> no duplicate
+    base = clock.today()
+    if task.get("Due Date"):
+        try:
+            base = clock.parse_date(str(task["Due Date"]))
+        except Exception:
+            base = clock.today()
+    nd = recurrence.next_due(str(rec.get("Rule")), base)
+    if not nd:
+        return
+    repo.add_task(rec.get("Title"), due_date=nd.isoformat(),
+                  due_time=rec.get("Time", ""), category=rec.get("Category", oc.CAT_GENERAL),
+                  responsible=rec.get("Responsible", ""), recurrence_id=rid)
+    repo.update_recurring(rid, {"Last Generated": nd.isoformat()})
 
 
 # ----------------------------------------------------------------- actions
@@ -59,6 +117,7 @@ def complete(task_id: str) -> dict | None:
         return None  # idempotent: already done
     repo.update_task(task_id, {"Status": oc.ST_COMPLETED, "Completed At": repo._now()})
     repo.log_history(task_id, "completed")
+    _generate_next(t)  # recurring -> create the next occurrence
     return repo.get_task(task_id)
 
 
@@ -89,6 +148,7 @@ def skip(task_id: str) -> dict | None:
         return None
     repo.update_task(task_id, {"Status": oc.ST_SKIPPED})
     repo.log_history(task_id, "skipped")
+    _generate_next(t)  # skip current occurrence but keep the recurrence going
     return repo.get_task(task_id)
 
 

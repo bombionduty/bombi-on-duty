@@ -24,8 +24,9 @@ async def refresh() -> None:
     gid = repo.get_owner_group_id()
     if not gid:
         return
-    text = messages.dashboard_text(service.build_buckets())
-    kb = keyboards.dashboard_kb()
+    buckets = service.build_buckets()
+    text = messages.dashboard_text(buckets)
+    kb = keyboards.dashboard_kb(buckets)
     msg_id = repo.get_setting(oc.SET_DASHBOARD_MSG_ID)
 
     if msg_id:

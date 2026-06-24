@@ -32,6 +32,7 @@ async def owner_tick() -> None:
     if hhmm == repo.setting_or_default(oc.SET_DAILY_SUMMARY):
         key = f"own_daily::{now.date().isoformat()}"
         if not markers.done(key):
+            service.generate_due_recurrences()  # keep recurring tasks seeded
             buckets = service.build_buckets()
             greeting = repo.setting_or_default(oc.SET_GREETING_NAME)
             await notify.send_message(gid, messages.daily_summary(greeting, buckets))
