@@ -6,6 +6,7 @@ ST_OPEN = "Open"
 ST_WAITING = "Waiting"
 ST_COMPLETED = "Completed"
 ST_SKIPPED = "Skipped"
+ST_CANCELLED = "Cancelled"
 
 # Derived buckets (computed from due date for Open tasks) — for display only.
 B_OVERDUE = "OVERDUE"

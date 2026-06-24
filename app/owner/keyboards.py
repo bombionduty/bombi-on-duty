@@ -69,32 +69,36 @@ def edit_who_kb(batch_id: str, idx: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def task_kb(task_id: str) -> InlineKeyboardMarkup:
+def task_card_kb(task_id: str, is_recurring: bool = False) -> InlineKeyboardMarkup:
+    """Everyday task-card actions. Recurring occurrences get a safe Skip instead
+    of a destructive Cancel Task (which could imply deleting the whole schedule)."""
+    third = (InlineKeyboardButton("⏭ Skip This One", callback_data=f"own:sk:{task_id}")
+             if is_recurring else
+             InlineKeyboardButton("🗑 Cancel Task", callback_data=f"own:cxt:{task_id}"))
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Done", callback_data=f"own:dn:{task_id}"),
          InlineKeyboardButton("📅 Reschedule", callback_data=f"own:rs:{task_id}")],
-        [InlineKeyboardButton("🔵 Waiting", callback_data=f"own:wt:{task_id}"),
-         InlineKeyboardButton("🗑 Skip", callback_data=f"own:sk:{task_id}")],
+        [third],
     ])
 
 
 def reschedule_kb(task_id: str) -> InlineKeyboardMarkup:
     opts = [("Later Today", "today"), ("Tomorrow", "tom"), ("In 2 Days", "2d"),
-            ("This Weekend", "wknd"), ("Next Week", "next")]
+            ("This Weekend", "wknd"), ("Next Week", "next"), ("📅 Choose Date", "choose")]
     rows = [[InlineKeyboardButton(lbl, callback_data=f"own:rx:{task_id}:{key}")]
             for lbl, key in opts]
     return InlineKeyboardMarkup(rows)
 
 
-def waiting_kb(task_id: str) -> InlineKeyboardMarkup:
-    opts = [("Follow up tomorrow", "tom"), ("In 2 days", "2d"), ("Next week", "next")]
-    rows = [[InlineKeyboardButton(lbl, callback_data=f"own:wx:{task_id}:{key}")]
-            for lbl, key in opts]
-    return InlineKeyboardMarkup(rows)
+def cancel_confirm_kb(task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑 Yes, Cancel", callback_data=f"own:cxy:{task_id}"),
+         InlineKeyboardButton("↩️ Keep Task", callback_data=f"own:cxk:{task_id}")],
+    ])
 
 
 def dashboard_kb(buckets=None) -> InlineKeyboardMarkup:
-    """Dashboard with one-tap ✅ Done buttons for overdue + due-today tasks."""
+    """Dashboard: one-tap ✅ for overdue+due-today, plus the control row."""
     rows = []
     if buckets:
         from app.owner import constants as oc
@@ -103,6 +107,8 @@ def dashboard_kb(buckets=None) -> InlineKeyboardMarkup:
             title = str(t.get("Title") or "")[:28]
             rows.append([InlineKeyboardButton(
                 f"✅ {title}", callback_data=f"own:dd:{t.get('Task ID')}")])
-    rows.append([InlineKeyboardButton("📋 Refresh", callback_data="own:dash:refresh"),
+    rows.append([InlineKeyboardButton("➕ Add Task", callback_data="own:hint:add"),
+                 InlineKeyboardButton("📋 Manage Today", callback_data="own:mt:open")])
+    rows.append([InlineKeyboardButton("🔄 Refresh", callback_data="own:dash:refresh"),
                  InlineKeyboardButton("⚙️ Settings", callback_data="own:setup:open")])
     return InlineKeyboardMarkup(rows)

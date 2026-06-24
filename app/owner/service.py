@@ -142,6 +142,15 @@ def set_waiting(task_id: str, followup: date | None) -> dict | None:
     return repo.get_task(task_id)
 
 
+def cancel(task_id: str) -> dict | None:
+    t = repo.get_task(task_id)
+    if not t or str(t.get("Status")) in (oc.ST_CANCELLED, oc.ST_COMPLETED):
+        return None  # idempotent
+    repo.update_task(task_id, {"Status": oc.ST_CANCELLED})
+    repo.log_history(task_id, "cancelled", str(t.get("Title") or ""))
+    return repo.get_task(task_id)
+
+
 def skip(task_id: str) -> dict | None:
     t = repo.get_task(task_id)
     if not t or str(t.get("Status")) in (oc.ST_SKIPPED, oc.ST_COMPLETED):
@@ -159,7 +168,7 @@ def bucket_for(task: dict) -> str | None:
         return oc.B_COMPLETED
     if st == oc.ST_WAITING:
         return oc.B_WAITING
-    if st == oc.ST_SKIPPED:
+    if st in (oc.ST_SKIPPED, oc.ST_CANCELLED):
         return None
     d = task.get("Due Date")
     if not d:
