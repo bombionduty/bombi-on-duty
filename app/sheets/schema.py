@@ -25,6 +25,12 @@ OIC_REVIEWS = "OIC Reviews"
 SETTINGS = "Settings"
 AUDIT_LOG = "Audit Log"
 
+# ---- Owner Mode (Bombi On Call) — completely separate from staff data ----
+ADMIN_TASKS = "AdminTasks"
+ADMIN_RECURRING = "AdminRecurring"
+ADMIN_SETTINGS = "AdminSettings"
+ADMIN_HISTORY = "AdminHistory"
+
 HEADERS: dict[str, list[str]] = {
     STAFF: [
         "Staff ID", "Staff Name", "Telegram User ID", "Telegram Username",
@@ -105,6 +111,25 @@ HEADERS: dict[str, list[str]] = {
         "Audit ID", "Timestamp", "Actor Telegram User ID", "Actor Name",
         "Actor Role", "Action", "Entity Type", "Entity ID",
         "Original Assigned Staff ID", "Previous Value", "New Value", "Reason",
+    ],
+
+    # ---- Owner Mode tabs (separate from all staff data above) ----
+    ADMIN_TASKS: [
+        "Task ID", "Title", "Note", "Category", "Status", "Responsible",
+        "Due Date", "Due Time", "Original Due Date", "Recurrence ID",
+        "Workflow", "Created At", "Completed At", "Next Reminder At",
+        "Source Message ID", "Updated At",
+    ],
+    ADMIN_RECURRING: [
+        "Recurrence ID", "Title", "Category", "Responsible", "Rule",
+        "Days Of Week", "Day Of Month", "Time", "Lead Days", "Active",
+        "Last Generated", "Notes", "Created At", "Updated At",
+    ],
+    ADMIN_SETTINGS: [
+        "Setting Key", "Setting Value", "Description", "Updated At",
+    ],
+    ADMIN_HISTORY: [
+        "History ID", "Timestamp", "Task ID", "Action", "Detail",
     ],
 }
 

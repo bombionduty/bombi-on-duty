@@ -571,3 +571,8 @@ def register(application) -> None:
     h(CommandHandler("checklist", cmd_checklist))
     h(CommandHandler("test", cmd_test))
     h(CallbackQueryHandler(on_callback))
+
+    # ---- Owner Mode (isolated module). Adds only /setupowner + /unsetupowner
+    # for now; cannot affect staff handlers. ----
+    from app.owner import handlers as owner_handlers
+    owner_handlers.register(application)
