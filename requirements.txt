@@ -11,6 +11,9 @@ pydantic==2.10.3
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 
+# Owner Mode date math (month-ends, short months, recurrence) — used in Phase 1
+python-dateutil==2.9.0.post0
+
 # Google Sheets + Drive
 google-api-python-client==2.155.0
 google-auth==2.37.0

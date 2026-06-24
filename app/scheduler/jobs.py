@@ -86,6 +86,14 @@ async def _tick_inner() -> None:
     await _maybe_weekly(now, settings_store.get(constants.SETTING_WEEKLY_REPORT_DAY),
                         "weekly_report", report_service.send_weekly_report)
 
+    # 7) Owner Mode tick — runs LAST and in its OWN try/except so any Owner Mode
+    #    error can never affect the staff steps above (which already completed).
+    try:
+        from app.owner import scheduler as owner_scheduler
+        await owner_scheduler.owner_tick()
+    except Exception:
+        log.exception("Owner Mode tick failed (staff scheduler unaffected)")
+
 
 async def _maybe_weekly(now, spec: str, name: str, coro) -> None:
     """spec like 'SUN 18:00'."""
