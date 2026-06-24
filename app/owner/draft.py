@@ -31,8 +31,8 @@ def discard(bid: str) -> None:
     _drafts.pop(bid, None)
 
 
-def pop(bid: str):
-    return _drafts.pop(bid, None)
+def pop(bid: str, default=None):
+    return _drafts.pop(bid, default)
 
 
 def edit_title(bid: str, idx: int, title: str) -> bool:

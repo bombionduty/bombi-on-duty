@@ -77,6 +77,13 @@ def test_stale_edit_after_confirm_cannot_modify():
     assert draft.get(bid) is None
 
 
+def test_draft_pop_accepts_default_arg():
+    # Regression: handlers call draft.pop(batch, None) — must not TypeError.
+    bid = draft.create([{"title": "A"}])
+    assert draft.pop(bid, None) is not None
+    assert draft.pop("missing", None) is None  # default returned, no error
+
+
 def test_draft_never_persists_prematurely():
     import inspect
     src = inspect.getsource(draft)
