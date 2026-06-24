@@ -45,6 +45,7 @@ def confirm_card(tasks: list[dict]) -> str:
     n = len(tasks)
     head = f"🍓 <b>I caught {n} task{'s' if n != 1 else ''}</b>\n"
     lines = []
+    has_recur = False
     for t in tasks:
         emoji = oc.CATEGORY_EMOJI.get(t.get("category", oc.CAT_GENERAL), "🍓")
         due = t.get("due")
@@ -52,9 +53,17 @@ def confirm_card(tasks: list[dict]) -> str:
             due_str = _due_label({"Due Date": due}) if due else "no date yet"
         except Exception:
             due_str = "no date yet"
-        recur = f" · 🔁 {esc(t['recurrence'])}" if t.get("recurrence") else ""
-        lines.append(f"\n{emoji} <b>{esc(t['title'])}</b>\nDue: {esc(due_str)}{recur}")
-    return head + "".join(lines) + "\n\nLook right?"
+        who = f" · 👤 {esc(t['responsible'])}" if t.get("responsible") else ""
+        recur = ""
+        if t.get("recurrence"):
+            has_recur = True
+            recur = "  🔁"
+        lines.append(f"\n{emoji} <b>{esc(t['title'])}</b>{recur}\nDue: {esc(due_str)}{who}")
+    foot = "\n\nLook right? You can ✏️ Edit any task before saving."
+    if has_recur:
+        foot += ("\n\n🔁 <i>Auto-repeat isn't on yet (coming in Phase 2). I'll save "
+                 "recurring items as a one-time task on the next date for now.</i>")
+    return head + "".join(lines) + foot
 
 
 def nodate_question(count: int) -> str:

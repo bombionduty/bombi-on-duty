@@ -30,3 +30,16 @@ def is_owner_chat(chat_id) -> bool:
 
 def is_staff_chat(chat_id) -> bool:
     return str(chat_id) == str(get_settings().staff_group_chat_id)
+
+
+def capture_allowed(*, chat_id, user_id, is_bot: bool, has_text: bool) -> bool:
+    """Whether a message may be captured as an owner task.
+
+    Requires BOTH the registered owner chat AND the admin user, a real (non-bot)
+    sender, and actual text (so service messages / channel posts / bot messages
+    are ignored even if they reach the handler).
+    """
+    return bool(
+        has_text and not is_bot
+        and is_admin_user(user_id) and is_owner_chat(chat_id)
+    )

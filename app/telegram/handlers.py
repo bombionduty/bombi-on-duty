@@ -34,6 +34,9 @@ from app.telegram import keyboards, notify
 
 log = logging.getLogger(__name__)
 
+# Staff callbacks use these 4 prefixes; the pattern leaves 'own:' for Owner Mode.
+STAFF_CALLBACK_PATTERN = r"^(ack|sendev|rev|oic):"
+
 # When an OIC taps "Mark Incomplete", we wait for their next message (the issue
 # details). Maps their Telegram user id -> the review id being flagged.
 _pending_issue: dict[int, str] = {}
@@ -570,8 +573,7 @@ def register(application) -> None:
     h(CommandHandler("additem", cmd_additem))
     h(CommandHandler("checklist", cmd_checklist))
     h(CommandHandler("test", cmd_test))
-    # Staff callbacks use these prefixes; the pattern leaves 'own:' for Owner Mode.
-    h(CallbackQueryHandler(on_callback, pattern=r"^(ack|sendev|rev|oic):"))
+    h(CallbackQueryHandler(on_callback, pattern=STAFF_CALLBACK_PATTERN))
 
     # ---- Owner Mode (isolated module). Adds only /setupowner + /unsetupowner
     # for now; cannot affect staff handlers. ----

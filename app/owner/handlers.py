@@ -2,18 +2,19 @@
 Owner Mode Telegram handlers.
 
 Phase 0: /setupowner, /unsetupowner (registration + security).
-Phase 1: text task capture, confirm flow, task action buttons (Done/Reschedule/
-         Waiting/Skip), /today, /week, /owner dashboard.
+Phase 1: text task capture, confirm + EDIT flow, task action buttons
+         (Done/Reschedule/Waiting/Skip), /today, /week, /owner dashboard.
 
-Isolation: the text handler only acts in the registered owner chat for the admin;
-owner callbacks use the 'own:' prefix and never touch staff callbacks.
+Isolation/security: the text handler only acts for the admin inside the
+registered owner chat; owner callbacks use the 'own:' prefix.
 """
 from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 
-from telegram import Update
+from telegram import ForceReply, Update
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -22,20 +23,20 @@ from telegram.ext import (
     filters,
 )
 
-from app.config import get_settings
+from app import clock
 from app.owner import constants as oc
-from app.owner import dashboard, keyboards, messages, parser, repo, routing, service
+from app.owner import dashboard, draft, keyboards, messages, parser, repo, routing, service
 
 log = logging.getLogger(__name__)
 
 OWNER_GROUP_NAME = "Bombi On Call"
+OWNER_CALLBACK_PATTERN = r"^own:"
 
-# Pending capture batches: batch_id -> list of parsed task dicts (in memory).
-_pending: dict[str, list] = {}
+# Only this maps a user to a pending typed-input step; drafts live in draft.py.
+_await_input: dict[int, dict] = {}    # uid -> {"kind","batch","idx"}
 
 
 def _owner_ok(update: Update) -> bool:
-    """True only for the admin acting inside the registered owner chat."""
     u, c = update.effective_user, update.effective_chat
     return bool(u and c and routing.is_admin_user(u.id) and routing.is_owner_chat(c.id))
 
@@ -67,8 +68,9 @@ async def cmd_setupowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     msg = await update.effective_message.reply_text(
         f"🍓 <b>{OWNER_GROUP_NAME}</b> is now your Owner Mode HQ!\n\n"
         "Just type your tasks here (e.g. <i>\"pay electricity on the 28th and follow up "
-        "with Alex tomorrow\"</i>) and I'll organize them. Use /today, /week, or /owner anytime.",
-        parse_mode="HTML")
+        "with Alex tomorrow\"</i>). Use /today, /week, or /owner anytime.\n\n"
+        "ℹ️ Make me an <b>admin</b> in this group so I can read your messages and pin "
+        "the dashboard.", parse_mode="HTML")
     try:
         await ctx.bot.pin_chat_message(chat.id, msg.message_id, disable_notification=True)
     except Exception:
@@ -85,94 +87,226 @@ async def cmd_unsetupowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> No
 
 # ============================================================ capture (Phase 1)
 async def on_owner_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _owner_ok(update):
-        return  # ignore everything outside the owner chat / non-admin
-    text = update.effective_message.text or ""
+    # Security guards: only a real (non-bot) message, from the admin, in the
+    # owner chat. Edited messages / channel posts have update.message == None.
+    # Ignore edited messages / channel posts (those have update.message == None).
+    msg = update.message
+    if msg is None:
+        return
+    user = msg.from_user
+    if not routing.capture_allowed(chat_id=msg.chat.id,
+                                   user_id=(user.id if user else 0),
+                                   is_bot=bool(user and user.is_bot),
+                                   has_text=bool(msg.text)):
+        return
+
+    uid = user.id
+    text = msg.text or ""
+
+    # Mid-edit typed input takes priority over parsing as new tasks.
+    if uid in _await_input:
+        return await _handle_await_input(update, text)
+
     parsed = parser.parse(text)
     if not parsed:
-        return await update.effective_message.reply_text(
+        return await msg.reply_text(
             "🍓 I didn't catch a task there. Try e.g. <i>\"film the Biscoff video tomorrow\"</i>.",
             parse_mode="HTML")
-    batch = uuid.uuid4().hex[:8]
-    _pending[batch] = parsed
-    await update.effective_message.reply_text(
-        messages.confirm_card(parsed), parse_mode="HTML",
-        reply_markup=keyboards.confirm_kb(batch))
+    batch = draft.create(parsed)
+    await msg.reply_text(messages.confirm_card(parsed), parse_mode="HTML",
+                         reply_markup=keyboards.confirm_kb(batch))
 
 
-async def _finalize(parsed: list, chat_id) -> None:
-    created = service.create_from_parsed(parsed)
-    await dashboard.refresh()
+def _parse_typed_date(text: str):
+    due, _, _ = parser._extract_when(text)
+    if due:
+        return due
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d", "%b %d", "%B %d"):
+        try:
+            dt = datetime.strptime(text.strip(), fmt).date()
+            if "%Y" not in fmt:
+                dt = dt.replace(year=clock.today().year)
+            return dt
+        except ValueError:
+            continue
+    return None
+
+
+async def _handle_await_input(update: Update, text: str) -> None:
+    uid = update.effective_user.id
+    state = _await_input.pop(uid, None)
+    if not state:
+        return
+    batch = state["batch"]
+    parsed = draft.get(batch)
+    if not parsed:
+        return await update.message.reply_text("That edit session expired — please resend the task.")
+    kind = state["kind"]
+
+    if kind == "title":
+        draft.edit_title(batch, state["idx"], text)
+    elif kind == "date_task":
+        d = _parse_typed_date(text)
+        draft.edit_date(batch, state["idx"], d.isoformat() if d else "")
+    elif kind == "date_batch":
+        d = _parse_typed_date(text)
+        draft.apply_shared_date(batch, d.isoformat() if d else "")
+        parsed = draft.pop(batch)
+        service.create_from_parsed(parsed)
+        await dashboard.refresh()
+        return await update.message.reply_text(f"✅ Added {len(parsed)} task(s). See the dashboard 👇")
+
+    await update.message.reply_text(messages.confirm_card(parsed), parse_mode="HTML",
+                                    reply_markup=keyboards.confirm_kb(batch))
 
 
 # ============================================================ callbacks
+def _task_detail(p: dict) -> str:
+    due = p.get("due") or "no date"
+    who = p.get("responsible") or "me"
+    return (f"Editing: <b>{messages.esc(p.get('title'))}</b>\n"
+            f"📅 {messages.esc(due)} · 👤 {messages.esc(who)}\n\nWhat do you want to change?")
+
+
 async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     q = update.callback_query
-    data = q.data or ""
     if not routing.is_admin_user(q.from_user.id):
         return await q.answer("Owner only.", show_alert=True)
-    parts = data.split(":")
+    parts = (q.data or "").split(":")
     action = parts[1] if len(parts) > 1 else ""
 
-    # ---- capture confirm flow ----
-    if action == "cf":  # confirm
+    # ---------- capture confirm ----------
+    if action == "cf":
         batch = parts[2]
-        parsed = _pending.get(batch)
+        parsed = draft.get(batch)
         if not parsed:
             return await q.answer("This batch expired — please resend.", show_alert=True)
         undated = [p for p in parsed if not p.get("due")]
         if undated:
             await q.answer()
-            return await q.edit_message_text(
-                messages.nodate_question(len(undated)), parse_mode="HTML",
-                reply_markup=keyboards.nodate_kb(batch))
-        _pending.pop(batch, None)
-        await _finalize(parsed, q.message.chat_id)
+            return await q.edit_message_text(messages.nodate_question(len(undated)),
+                                             parse_mode="HTML", reply_markup=keyboards.nodate_kb(batch))
+        draft.pop(batch, None)
+        service.create_from_parsed(parsed)
+        await dashboard.refresh()
         await q.answer("Added ✅")
         return await q.edit_message_text(f"✅ Added {len(parsed)} task(s). See the dashboard 👇")
 
-    if action == "cx":  # cancel
-        _pending.pop(parts[2], None)
+    if action == "cx":
+        draft.pop(parts[2], None)
         await q.answer("Cancelled")
         return await q.edit_message_text("🗑 Cancelled — nothing was saved.")
 
-    if action == "nd":  # no-date choice applies to all undated
+    if action == "nd":
         batch, key = parts[2], parts[3]
-        parsed = _pending.pop(batch, None)
+        parsed = draft.get(batch)
         if not parsed:
             return await q.answer("This batch expired — please resend.", show_alert=True)
+        if key == "choose":
+            _await_input[q.from_user.id] = {"kind": "date_batch", "batch": batch}
+            await q.answer()
+            return await ctx.bot.send_message(
+                q.message.chat_id, "📅 Type a date (e.g. <code>2026-07-15</code> or "
+                "<code>next friday</code>):", parse_mode="HTML",
+                reply_markup=ForceReply(input_field_placeholder="e.g. 2026-07-15"))
+        draft.pop(batch, None)
         when = service.resolve_when(key)
         for p in parsed:
             if not p.get("due"):
                 p["due"] = when.isoformat() if when else ""
-        await _finalize(parsed, q.message.chat_id)
+        service.create_from_parsed(parsed)
+        await dashboard.refresh()
         await q.answer("Added ✅")
         return await q.edit_message_text(f"✅ Added {len(parsed)} task(s). See the dashboard 👇")
 
-    # ---- dashboard helpers ----
+    # ---------- edit flow ----------
+    if action == "ed":
+        batch = parts[2]
+        parsed = draft.get(batch)
+        if not parsed:
+            return await q.answer("This batch expired — please resend.", show_alert=True)
+        await q.answer()
+        return await q.edit_message_text("✏️ Which task do you want to edit?",
+                                         reply_markup=keyboards.edit_list_kb(batch, parsed))
+    if action == "ebk":
+        batch = parts[2]
+        parsed = draft.get(batch)
+        if not parsed:
+            return await q.answer("This batch expired — please resend.", show_alert=True)
+        await q.answer()
+        return await q.edit_message_text(messages.confirm_card(parsed), parse_mode="HTML",
+                                         reply_markup=keyboards.confirm_kb(batch))
+    if action == "ei":
+        batch, idx = parts[2], int(parts[3])
+        parsed = draft.get(batch)
+        if not parsed or idx >= len(parsed):
+            return await q.answer("Expired — please resend.", show_alert=True)
+        await q.answer()
+        return await q.edit_message_text(_task_detail(parsed[idx]), parse_mode="HTML",
+                                         reply_markup=keyboards.edit_task_kb(batch, idx))
+    if action == "et":  # edit title -> ask for typed input
+        batch, idx = parts[2], int(parts[3])
+        _await_input[q.from_user.id] = {"kind": "title", "batch": batch, "idx": idx}
+        await q.answer()
+        return await ctx.bot.send_message(q.message.chat_id, "✏️ Type the new title:",
+                                          reply_markup=ForceReply(input_field_placeholder="New title"))
+    if action == "edt":  # show date options
+        batch, idx = parts[2], int(parts[3])
+        await q.answer()
+        return await q.edit_message_reply_markup(reply_markup=keyboards.edit_date_kb(batch, idx))
+    if action == "eds":  # apply date choice
+        batch, idx, key = parts[2], int(parts[3]), parts[4]
+        parsed = draft.get(batch)
+        if not parsed:
+            return await q.answer("Expired — please resend.", show_alert=True)
+        if key == "choose":
+            _await_input[q.from_user.id] = {"kind": "date_task", "batch": batch, "idx": idx}
+            await q.answer()
+            return await ctx.bot.send_message(
+                q.message.chat_id, "📅 Type a date (e.g. <code>2026-07-15</code>):",
+                parse_mode="HTML", reply_markup=ForceReply(input_field_placeholder="e.g. 2026-07-15"))
+        when = service.resolve_when(key)
+        parsed[idx]["due"] = when.isoformat() if when else ""
+        await q.answer("Updated")
+        return await q.edit_message_text(messages.confirm_card(parsed), parse_mode="HTML",
+                                         reply_markup=keyboards.confirm_kb(batch))
+    if action == "ewho":
+        batch, idx = parts[2], int(parts[3])
+        await q.answer()
+        return await q.edit_message_reply_markup(reply_markup=keyboards.edit_who_kb(batch, idx))
+    if action == "ews":
+        batch, idx, who = parts[2], int(parts[3], ), parts[4]
+        parsed = draft.get(batch)
+        if not parsed:
+            return await q.answer("Expired — please resend.", show_alert=True)
+        parsed[idx]["responsible"] = "" if who == "me" else who
+        await q.answer("Updated")
+        return await q.edit_message_text(messages.confirm_card(parsed), parse_mode="HTML",
+                                         reply_markup=keyboards.confirm_kb(batch))
+
+    # ---------- dashboard helpers ----------
     if action == "dash":
         await dashboard.refresh()
         return await q.answer("Refreshed 🍓")
     if action == "hint":
         return await q.answer("Just type your task(s) here and I'll catch them!", show_alert=True)
 
-    # ---- task actions ----
+    # ---------- task actions ----------
     if action in ("dn", "rs", "rx", "wt", "wx", "sk"):
         task_id = parts[2]
         task = repo.get_task(task_id)
         if not task:
             return await q.answer("Task not found.", show_alert=True)
-
-        if action == "dn":  # done
+        if action == "dn":
             res = service.complete(task_id)
             await q.answer("Done ✅" if res else "Already done")
             await dashboard.refresh()
             return await q.edit_message_text(f"✅ <b>{messages.esc(task.get('Title'))}</b> — done!",
                                              parse_mode="HTML")
-        if action == "rs":  # show reschedule options
+        if action == "rs":
             await q.answer()
             return await q.edit_message_reply_markup(reply_markup=keyboards.reschedule_kb(task_id))
-        if action == "rx":  # apply reschedule
+        if action == "rx":
             when = service.resolve_when(parts[3])
             if when:
                 service.reschedule(task_id, when)
@@ -180,20 +314,19 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             await q.answer("Rescheduled 📅")
             return await q.edit_message_text(
                 f"📅 <b>{messages.esc(task.get('Title'))}</b> moved to "
-                f"{messages.esc(when.strftime('%b %d').replace(' 0', ' ')) if when else 'later'}.",
+                f"{when.strftime('%b %d').replace(' 0', ' ') if when else 'later'}.",
                 parse_mode="HTML")
-        if action == "wt":  # show waiting follow-up options
+        if action == "wt":
             await q.answer()
             return await q.edit_message_reply_markup(reply_markup=keyboards.waiting_kb(task_id))
-        if action == "wx":  # apply waiting
+        if action == "wx":
             when = service.resolve_when(parts[3])
             service.set_waiting(task_id, when)
             await dashboard.refresh()
             await q.answer("Marked waiting 🔵")
             return await q.edit_message_text(
-                f"🔵 Waiting — <b>{messages.esc(task.get('Title'))}</b>. "
-                f"I'll resurface it {messages.esc(parts[3])}.", parse_mode="HTML")
-        if action == "sk":  # skip
+                f"🔵 Waiting — <b>{messages.esc(task.get('Title'))}</b>.", parse_mode="HTML")
+        if action == "sk":
             service.skip(task_id)
             await dashboard.refresh()
             await q.answer("Skipped 🗑")
@@ -209,8 +342,7 @@ async def _send_task_list(chat_id, tasks, ctx, empty_msg="🌸 Nothing here — 
         return await ctx.bot.send_message(chat_id, empty_msg)
     for t in tasks:
         line = f"{messages.cat_emoji(t)} <b>{messages.esc(t.get('Title'))}</b>"
-        due = t.get("Due Date")
-        if due:
+        if t.get("Due Date"):
             line += f"\n🕐 {messages.esc(t.get('Due Date'))}"
         await ctx.bot.send_message(chat_id, line, parse_mode="HTML",
                                    reply_markup=keyboards.task_kb(t["Task ID"]))
@@ -220,8 +352,7 @@ async def cmd_today(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _owner_ok(update):
         return
     b = service.build_buckets()
-    tasks = b[oc.B_OVERDUE] + b[oc.B_DUE_TODAY]
-    await _send_task_list(update.effective_chat.id, tasks, ctx,
+    await _send_task_list(update.effective_chat.id, b[oc.B_OVERDUE] + b[oc.B_DUE_TODAY], ctx,
                           "🌸 Nothing overdue or due today!")
 
 
@@ -246,7 +377,6 @@ def register(application) -> None:
     application.add_handler(CommandHandler(["owner", "dashboard"], cmd_owner))
     application.add_handler(CommandHandler("today", cmd_today))
     application.add_handler(CommandHandler("week", cmd_week))
-    application.add_handler(CallbackQueryHandler(on_owner_callback, pattern=r"^own:"))
-    # Owner text capture — only group text; the handler itself checks owner chat.
+    application.add_handler(CallbackQueryHandler(on_owner_callback, pattern=OWNER_CALLBACK_PATTERN))
     application.add_handler(MessageHandler(
         filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, on_owner_text))

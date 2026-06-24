@@ -34,6 +34,11 @@ def resolve_when(key: str) -> date | None:
 def create_from_parsed(parsed: list[dict], source_msg_id: str = "") -> list[dict]:
     created = []
     for p in parsed:
+        # Phase 1 has no recurrence engine: save a ONE-TIME task and just note the
+        # intent (no functional recurrence is stored, so nothing silently dies).
+        note = ""
+        if p.get("recurrence"):
+            note = f"(said '{p['recurrence']}' — auto-repeat lands in Phase 2)"
         created.append(repo.add_task(
             p["title"],
             due_date=p.get("due", ""),
@@ -41,7 +46,7 @@ def create_from_parsed(parsed: list[dict], source_msg_id: str = "") -> list[dict
             category=p.get("category", oc.CAT_GENERAL),
             responsible=p.get("responsible", ""),
             status=oc.ST_OPEN,
-            note=(f"recurring: {p['recurrence']}" if p.get("recurrence") else ""),
+            note=note,
             source_message_id=source_msg_id,
         ))
     return created
