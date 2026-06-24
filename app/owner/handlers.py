@@ -44,6 +44,22 @@ async def cmd_setupowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
             "Owner Mode and run /setupowner there."
         )
 
+    # Safeguard: don't silently overwrite an already-registered Owner group.
+    existing = repo.get_owner_group_id()
+    force = bool(ctx.args) and str(ctx.args[0]).lower() == "confirm"
+    if existing and str(existing) == str(chat.id):
+        return await update.effective_message.reply_text(
+            "✅ This group is already your Owner Mode group. Nothing to change."
+        )
+    if existing and str(existing) != str(chat.id) and not force:
+        return await update.effective_message.reply_text(
+            f"⚠️ An Owner Mode group is already registered (chat <code>{existing}</code>).\n\n"
+            "To move Owner Mode to THIS group, either:\n"
+            "• run /unsetupowner in the current Owner group first, or\n"
+            "• send <code>/setupowner confirm</code> here to replace it.",
+            parse_mode="HTML",
+        )
+
     repo.set_owner_group_id(chat.id)
     # Try to pin a placeholder; ask the owner to pin manually if we can't.
     msg = await update.effective_message.reply_text(
