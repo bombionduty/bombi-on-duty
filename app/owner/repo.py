@@ -8,13 +8,23 @@ raising — so routing and the scheduler can never crash on a missing tab.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from app import clock
+from app.owner import constants as oc
 from app.sheets import client, schema
 
 log = logging.getLogger(__name__)
 
 KEY_OWNER_GROUP = "owner_group_chat_id"
+
+
+def _gen(prefix: str) -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+def _now() -> str:
+    return clock.iso(clock.now())
 
 
 def _settings():
@@ -55,3 +65,78 @@ def set_owner_group_id(chat_id) -> None:
 
 def clear_owner_group_id() -> None:
     set_setting(KEY_OWNER_GROUP, "", "Owner Mode group unregistered")
+
+
+def setting_or_default(key: str) -> str:
+    return get_setting(key, oc.DEFAULTS.get(key, "")) or oc.DEFAULTS.get(key, "")
+
+
+# --------------------------------------------------------------- AdminTasks
+def _tasks():
+    return client.table(schema.ADMIN_TASKS)
+
+
+def add_task(
+    title: str,
+    *,
+    due_date: str = "",
+    due_time: str = "",
+    category: str = oc.CAT_GENERAL,
+    note: str = "",
+    responsible: str = "",
+    status: str = oc.ST_OPEN,
+    source_message_id: str = "",
+) -> dict:
+    row = {
+        "Task ID": _gen("OT"),
+        "Title": title,
+        "Note": note,
+        "Category": category,
+        "Status": status,
+        "Responsible": responsible,
+        "Due Date": due_date,
+        "Due Time": due_time,
+        "Original Due Date": due_date,
+        "Recurrence ID": "",
+        "Workflow": "",
+        "Created At": _now(),
+        "Completed At": "",
+        "Next Reminder At": "",
+        "Source Message ID": str(source_message_id or ""),
+        "Updated At": _now(),
+    }
+    _tasks().append(row)
+    return row
+
+
+def get_task(task_id: str) -> dict | None:
+    return _tasks().find("Task ID", task_id)
+
+
+def update_task(task_id: str, changes: dict) -> bool:
+    return _tasks().update("Task ID", task_id, {**changes, "Updated At": _now()})
+
+
+def all_tasks() -> list[dict]:
+    return _tasks().all()
+
+
+def active_tasks() -> list[dict]:
+    """Open + Waiting (not completed/skipped)."""
+    return [t for t in all_tasks()
+            if str(t.get("Status")) in (oc.ST_OPEN, oc.ST_WAITING)]
+
+
+# ----------------------------------------------------------- AdminHistory
+def _history():
+    return client.table(schema.ADMIN_HISTORY)
+
+
+def log_history(task_id: str, action: str, detail: str = "") -> None:
+    try:
+        _history().append({
+            "History ID": _gen("OH"), "Timestamp": _now(),
+            "Task ID": task_id, "Action": action, "Detail": detail,
+        })
+    except Exception:
+        pass  # history is best-effort, never block an action

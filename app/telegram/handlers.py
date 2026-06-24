@@ -570,7 +570,8 @@ def register(application) -> None:
     h(CommandHandler("additem", cmd_additem))
     h(CommandHandler("checklist", cmd_checklist))
     h(CommandHandler("test", cmd_test))
-    h(CallbackQueryHandler(on_callback))
+    # Staff callbacks use these prefixes; the pattern leaves 'own:' for Owner Mode.
+    h(CallbackQueryHandler(on_callback, pattern=r"^(ack|sendev|rev|oic):"))
 
     # ---- Owner Mode (isolated module). Adds only /setupowner + /unsetupowner
     # for now; cannot affect staff handlers. ----
