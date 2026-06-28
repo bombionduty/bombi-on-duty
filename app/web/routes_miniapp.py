@@ -320,13 +320,20 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
     opener_name = opener.get("Staff Name") if opener else "Unassigned"
     closer_name = closer.get("Staff Name") if closer else "Unassigned"
 
-    # Build a summary message.
+    # Send a schedule summary.
     msg = f"📋 <b>Schedule for {messages.esc(d.strftime('%b %d, %A'))}</b>\n\n"
     msg += f"🌅 <b>Opening</b>: {messages.esc(opener_name)}\n"
     msg += f"🌙 <b>Closing</b>: {messages.esc(closer_name)}"
-
     await notify.send_message(get_settings().staff_group_chat_id, msg)
-    return {"ok": True, "notified": True}
+
+    # Repost any already-released checklist for the current assignee, so the new
+    # person gets a card with a working Open Checklist button.
+    reposted = 0
+    for ct in constants.CHECKLIST_TYPES:
+        if await task_service.repost_checklist(d, ct):
+            reposted += 1
+
+    return {"ok": True, "notified": True, "checklists_reposted": reposted}
 
 
 @router.post("/admin/copyweek")

@@ -208,43 +208,79 @@ async def refresh_group_card(task_id: str) -> None:
     )
 
 
+async def repost_checklist(d: date, checklist_type: str) -> dict | None:
+    """Re-sync an already-released checklist's assignee from the current schedule
+    and post a FRESH group card (with a working Open Checklist button) tagging the
+    current assignee. The old card is retired so there's no stale button or a card
+    tagging the wrong person. Returns the task, or None if there's nothing to
+    repost (not released yet, already submitted, or no active assignee).
+    """
+    task = task_repo.get_by_key(d, checklist_type)
+    if not task or task.get("Submitted At"):
+        return None  # not released yet (auto-release will tag the right person) or done
+
+    responsible = constants.CHECK_RESPONSIBLE[checklist_type]
+    staff_id = schedule_repo.assigned_staff_id(d, responsible)
+    staff = staff_repo.get_by_staff_id(staff_id) if staff_id else None
+    if not staff or not as_bool(staff.get("Active")):
+        return None
+
+    task_id = str(task["Task ID"])
+    # Re-sync assignment (Staff ID + Name + Telegram User ID — the last is what
+    # authorization actually checks).
+    task_repo.update(task_id, {
+        "Assigned Staff ID": staff.get("Staff ID", ""),
+        "Assigned Staff Name": staff.get("Staff Name", ""),
+        "Assigned Telegram User ID": str(staff.get("Telegram User ID", "")),
+    })
+    task = task_repo.get(task_id)
+
+    # Retire the old group card (drop its button + mark it reassigned).
+    old_msg_id = task.get("Initial Message ID")
+    if old_msg_id and task.get("Staff Group Chat ID"):
+        try:
+            await notify.edit_message(
+                task["Staff Group Chat ID"], int(old_msg_id),
+                "↪️ <i>This checklist was reassigned — see the new card below.</i>",
+                reply_markup=None)
+        except Exception:
+            pass
+
+    # Post a fresh card tagging the new assignee.
+    role_label = "opener" if responsible == "opener" else "closer"
+    sent = await notify.send_message(
+        get_settings().staff_group_chat_id,
+        messages.group_card(with_mention(task), role_label),
+        reply_markup=keyboards.open_checklist_button(task_id))
+    if sent:
+        task_repo.update(task_id, {"Initial Message ID": sent.message_id})
+    audit.log("system", "Admin", constants.ROLE_ADMIN, "reassigned",
+              "Task", task_id, new_value=staff.get("Staff Name", ""))
+    return task_repo.get(task_id)
+
+
 async def notify_assignment_change(d: date, role: str, old_staff_id: str,
                                    new_staff_id: str) -> None:
-    """Send a group notification when an assignment changes (e.g., opener reassigned).
-
-    Also updates any existing task for that date to point to the new assignee.
-    """
+    """On a schedule save where the assignee changed: announce it to the group and
+    repost the live checklist (if any) for the new assignee."""
     old_staff = staff_repo.get_by_staff_id(old_staff_id) if old_staff_id else None
     new_staff = staff_repo.get_by_staff_id(new_staff_id) if new_staff_id else None
-    if not new_staff or not as_bool(new_staff.get("Active")):
-        return  # can't assign to missing/inactive staff
+    old_name = old_staff.get("Staff Name") if old_staff else "Unassigned"
+    new_name = new_staff.get("Staff Name") if new_staff else "Unassigned"
 
-    # Find the checklist type for this role (e.g., "opener" -> "Opening").
-    checklist_type = None
-    for ct, resp in constants.CHECK_RESPONSIBLE.items():
-        if resp == role.lower():
-            checklist_type = ct
-            break
-    if not checklist_type:
+    # Every checklist this role is responsible for (opener covers Opening + Handover).
+    types = [ct for ct, resp in constants.CHECK_RESPONSIBLE.items() if resp == role.lower()]
+    if not types:
         return
 
-    # Update any existing task for this date+type to the new assignee.
-    task = task_repo.get_by_key(d, checklist_type)
-    if task and not task.get("Submitted At"):
-        # Reassign the existing task.
-        task_repo.update_task(str(task["Task ID"]), {
-            "Assigned Staff ID": new_staff_id,
-            "Assigned Staff Name": new_staff.get("Staff Name", ""),
-        })
-        audit.log(0, new_staff.get("Staff Name", ""), constants.ROLE_ADMIN,
-                  "reassigned", "Task", task["Task ID"],
-                  detail=f"(from {old_staff.get('Staff Name', 'unassigned') if old_staff else 'unassigned'})")
+    label = "Opening/Handover" if role.lower() == "opener" else "Closing"
+    await notify.send_message(
+        get_settings().staff_group_chat_id,
+        f"📝 <b>Shift reassignment</b>\n\n"
+        f"<b>{label}</b> for <b>{messages.esc(d.strftime('%b %d, %A'))}</b>\n\n"
+        f"Was assigned to: <b>{messages.esc(old_name)}</b>\n"
+        f"Now assigned to: <b>{messages.esc(new_name)}</b>")
 
-    # Notify the group about the change.
-    old_name = old_staff.get("Staff Name", "Unassigned") if old_staff else "Unassigned"
-    new_name = new_staff.get("Staff Name", "")
-    msg = (f"📝 <b>Shift reassignment</b>\n\n"
-           f"<b>{checklist_type}</b> checklist for <b>{messages.esc(d.strftime('%b %d, %A'))}</b>\n\n"
-           f"Was assigned to: <b>{messages.esc(old_name)}</b>\n"
-           f"Now assigned to: <b>{messages.esc(new_name)}</b>")
-    await notify.send_message(get_settings().staff_group_chat_id, msg)
+    if new_staff and as_bool(new_staff.get("Active")):
+        for ct in types:
+            await repost_checklist(d, ct)
