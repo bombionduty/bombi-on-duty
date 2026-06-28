@@ -572,13 +572,18 @@ async def on_group_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     from app.services import assignment_service
     target = None
     if msg.reply_to_message:
-        target = assignment_service.find_by_group_message(msg.reply_to_message.message_id)
+        target = assignment_service.find_by_message(msg.reply_to_message.message_id)
+    opens = assignment_service.open_for_staff(uid)
+    if not target and len(opens) == 1:
+        target = opens[0]  # only one open task -> unambiguous, no reply needed
     if not target:
-        opens = assignment_service.open_for_staff(uid)
-        if len(opens) == 1:
-            target = opens[0]
-    if not target:
-        return  # can't tell which task — ignore quietly
+        # Multiple open tasks and they didn't reply to a specific one — ask them to.
+        if len(opens) >= 2:
+            await msg.reply_text(
+                f"📸 You have <b>{len(opens)} open tasks</b>. Please <b>reply</b> to the "
+                f"specific task's message with your photo so I know which one it's for.",
+                parse_mode="HTML")
+        return  # otherwise ignore quietly (e.g. an unrelated group photo)
 
     file_id = msg.photo[-1].file_id
     ok, note = await assignment_service.attach_proof(target["Assignment ID"], uid, file_id)

@@ -152,6 +152,20 @@ def test_find_by_group_message_matches_open(monkeypatch):
     assert svc.find_by_group_message(111) is None
 
 
+def test_find_by_message_matches_card_or_reminder(monkeypatch):
+    a = {**OPEN_TIMED, "Group Message ID": "500"}
+    _rows(monkeypatch, [a])
+    from app.repositories import reminder_repo
+    # reply to the original card
+    assert svc.find_by_message(500)["Assignment ID"] == "ASG1"
+    # reply to a reminder message tracked for this assignment
+    monkeypatch.setattr(reminder_repo, "task_for_message",
+                        lambda mid: "ASG1" if str(mid) == "888" else None)
+    monkeypatch.setattr(repo, "get", lambda i: a if i == "ASG1" else None)
+    assert svc.find_by_message(888)["Assignment ID"] == "ASG1"
+    assert svc.find_by_message(123) is None  # unrelated message
+
+
 def test_open_for_staff_filters_by_tg_id(monkeypatch):
     a1 = {**OPEN_TIMED, "Assignment ID": "A1", "Assigned Telegram User ID": "222"}
     a2 = {**OPEN_TIMED, "Assignment ID": "A2", "Assigned Telegram User ID": "333"}

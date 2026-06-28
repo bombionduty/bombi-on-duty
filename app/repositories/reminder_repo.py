@@ -35,6 +35,17 @@ def pending_for(task_id: str) -> list[dict]:
         return []
 
 
+def task_for_message(message_id) -> str | None:
+    """Reverse lookup: which task/assignment a tracked message belongs to."""
+    try:
+        for r in _t().all():
+            if str(r.get("Message ID")) == str(message_id):
+                return str(r.get("Task ID"))
+    except Exception as e:
+        log.debug("reminder task_for_message failed: %s", e)
+    return None
+
+
 def mark_deleted(message_id) -> None:
     try:
         _t().update("Message ID", str(message_id), {"Deleted": "TRUE"})

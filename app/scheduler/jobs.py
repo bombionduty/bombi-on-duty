@@ -120,9 +120,13 @@ async def _assignment_reminders(now) -> None:
         a = ev["a"]
         header = ("⏰ <b>DUE NOW</b>" if ev["kind"] == "due"
                   else "🔔 <b>REMINDER — still open</b>")
-        await notify.send_message(
+        sent = await notify.send_message(
             group_id, assignment_service.card(a, header=header),
             reply_markup=assignment_service.done_markup(a))
+        # Track so a photo replying to a reminder also matches this assignment.
+        if sent:
+            from app.repositories import reminder_repo
+            reminder_repo.log_reminder(a["Assignment ID"], group_id, sent.message_id)
         markers.mark(ev["key"])
 
 

@@ -135,6 +135,21 @@ def find_by_group_message(message_id: int | str) -> dict | None:
     return None
 
 
+def find_by_message(message_id: int | str) -> dict | None:
+    """Match a replied-to message to its open assignment — the original task card
+    OR any of its reminder messages."""
+    a = find_by_group_message(message_id)
+    if a:
+        return a
+    from app.repositories import reminder_repo
+    aid = reminder_repo.task_for_message(message_id)
+    if aid:
+        a = repo.get(aid)
+        if a and str(a.get("Status")) == repo.ST_OPEN:
+            return a
+    return None
+
+
 async def attach_proof(assignment_id: str, by_tg_id: int,
                        file_id: str) -> tuple[bool, str]:
     """A staff photo is posted as proof: store it and REVEAL the Mark Done button
