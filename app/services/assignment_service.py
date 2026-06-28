@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 
 # Periodic nudges fire on even hours within these bounds (Asia/Manila).
 NUDGE_HOURS = range(8, 21, 2)   # 08,10,12,14,16,18,20
+POST_LEAD_MIN = 15              # post the card this many minutes before due time
+POST_DATE_ONLY_HOUR = 8        # date-only tasks post at 08:00 on the due day
 
 
 def _mention(a: dict) -> str:
@@ -81,7 +83,7 @@ def card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> str:
             f"👤 {_mention(a)}{_due_line(a)}{rep}\n\n{foot}")
 
 
-async def _post_card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> None:
+async def post_card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> None:
     sent = await notify.send_message(
         get_settings().staff_group_chat_id, card(a, header),
         reply_markup=done_markup(a))
@@ -91,10 +93,10 @@ async def _post_card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> 
 
 async def create(*, title: str, staff: dict, due_date: str = "", due_time: str = "",
                  recurrence_rule: str = "", created_by: str = "") -> dict:
-    a = repo.add(title=title, staff=staff, due_date=due_date, due_time=due_time,
-                 recurrence_rule=recurrence_rule, created_by=created_by)
-    await _post_card(a)
-    return a
+    """Save the task. It is NOT posted to the group now — the scheduler posts the
+    card POST_LEAD_MIN minutes before the due time (see due_to_post)."""
+    return repo.add(title=title, staff=staff, due_date=due_date, due_time=due_time,
+                    recurrence_rule=recurrence_rule, created_by=created_by)
 
 
 def _generate_next_row(a: dict) -> dict | None:
@@ -201,11 +203,42 @@ async def mark_done(assignment_id: str, by_tg_id: int) -> tuple[bool, str]:
         except Exception:
             pass
 
-    # Recurring -> spin up the next occurrence and post it.
-    nxt = _generate_next_row(a)
-    if nxt:
-        await _post_card(nxt, header="🔁 <b>NEXT TASK</b>")
+    # Recurring -> spin up the next occurrence (the scheduler will post it
+    # 15 min before its own due time, same as any other task).
+    _generate_next_row(a)
     return True, "Marked done ✅"
+
+
+# ----------------------------------------------------------------- posting
+def due_to_post(now: datetime) -> list[dict]:
+    """Open tasks whose card should be posted to the group now — i.e. it hasn't
+    been posted yet (no Group Message ID) and we're within POST_LEAD_MIN of the
+    due time (timed) or it's POST_DATE_ONLY_HOUR on the due day (date-only)."""
+    from datetime import time as _time
+    out: list[dict] = []
+    for a in repo.open_rows():
+        if str(a.get("Group Message ID")):
+            continue  # already posted
+        d = str(a.get("Due Date") or "")
+        if not d:
+            out.append(a)  # no due date -> post right away
+            continue
+        try:
+            dd = clock.parse_date(d)
+        except Exception:
+            out.append(a)
+            continue
+        tm = str(a.get("Due Time") or "")
+        try:
+            if tm:
+                target = clock.combine(dd, clock.parse_time(tm)) - timedelta(minutes=POST_LEAD_MIN)
+            else:
+                target = clock.combine(dd, _time(POST_DATE_ONLY_HOUR, 0))
+        except Exception:
+            target = clock.combine(dd, _time(POST_DATE_ONLY_HOUR, 0))
+        if now >= target:
+            out.append(a)
+    return out
 
 
 # ----------------------------------------------------------------- reminders
@@ -215,10 +248,13 @@ def _in_window(now: datetime, target: datetime, mins: int = 2) -> bool:
 
 def reminders_due(now: datetime) -> list[dict]:
     """Which assignment reminders should fire at `now`. Restart-safe keys embed
-    the assignment id + slot so each fires at most once."""
+    the assignment id + slot so each fires at most once. Only POSTED tasks are
+    reminded (a task is silent until its card goes out 15 min before due)."""
     out: list[dict] = []
     today = now.date()
     for a in repo.open_rows():
+        if not str(a.get("Group Message ID")):
+            continue  # not posted yet -> no reminders
         aid = str(a.get("Assignment ID"))
         d = str(a.get("Due Date") or "")
         dd = None

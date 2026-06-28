@@ -21,7 +21,12 @@ def _rows(monkeypatch, rows):
 OPEN_TIMED = {"Assignment ID": "ASG1", "Series ID": "S1", "Title": "Restock Biscoff",
               "Assigned Staff ID": "ST1", "Assigned Staff Name": "Allyssa",
               "Assigned Telegram User ID": "222", "Due Date": "2026-06-24",
-              "Due Time": "15:00", "Status": "Open", "Recurrence Rule": ""}
+              "Due Time": "15:00", "Status": "Open", "Recurrence Rule": "",
+              "Group Message ID": "500"}  # already posted -> reminders apply
+
+
+def _kinds_post(now):
+    return [a["Assignment ID"] for a in svc.due_to_post(now)]
 
 
 def _kinds(now):
@@ -83,6 +88,31 @@ def test_recurring_no_duplicate_if_open_exists(monkeypatch):
 def test_oneoff_generates_nothing(monkeypatch):
     monkeypatch.setattr(repo, "add", lambda **kw: (_ for _ in ()).throw(AssertionError("should not add")))
     assert svc._generate_next_row(OPEN_TIMED) is None  # no rule -> nothing
+
+
+# ------------------------------------------------ post 15 min before due
+def test_posts_15_min_before_due(monkeypatch):
+    unposted = {**OPEN_TIMED, "Group Message ID": ""}  # not yet posted
+    _rows(monkeypatch, [unposted])
+    assert _kinds_post(_dt(2026, 6, 24, 14, 30)) == []      # 30 min before -> not yet
+    assert _kinds_post(_dt(2026, 6, 24, 14, 45)) == ["ASG1"]  # 15 min before -> post
+
+
+def test_already_posted_task_not_reposted(monkeypatch):
+    _rows(monkeypatch, [OPEN_TIMED])  # has Group Message ID
+    assert _kinds_post(_dt(2026, 6, 24, 14, 45)) == []
+
+
+def test_date_only_posts_at_morning_hour(monkeypatch):
+    dateonly = {**OPEN_TIMED, "Group Message ID": "", "Due Time": ""}
+    _rows(monkeypatch, [dateonly])
+    assert _kinds_post(_dt(2026, 6, 24, 7, 0)) == []       # before 08:00
+    assert _kinds_post(_dt(2026, 6, 24, 8, 0)) == ["ASG1"]  # at 08:00
+
+
+def test_unposted_task_gets_no_reminders(monkeypatch):
+    _rows(monkeypatch, [{**OPEN_TIMED, "Group Message ID": ""}])
+    assert _kinds(_dt(2026, 6, 24, 14, 0)) == []  # silent until posted
 
 
 # --------------------------------------------------------- 12-hour display

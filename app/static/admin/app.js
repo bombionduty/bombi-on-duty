@@ -86,8 +86,9 @@ const PAGE_FN = {
     const todayStr = new Date().toISOString().slice(0, 10);
 
     let h = `<h1>Staff Tasks</h1>
-      <p class="sub">Assign ad-hoc tasks (not part of opening/closing). Staff get a
-        Mark Done button and reminders every 2 hours until done.</p>
+      <p class="sub">Assign ad-hoc tasks (not part of opening/closing). The card posts
+        to the group 15 min before it's due; staff complete it with a photo, then
+        get reminders every 2 hours until done.</p>
       <div class="card"><h2>➕ Assign a task</h2>
         <label>Staff</label><select id="a_staff">${opts}</select>
         <label>Task</label><input id="a_title" placeholder="e.g. Restock the Biscoff display"/>
@@ -292,7 +293,7 @@ async function assignTask() {
     action: "add", staff_id: val("a_staff"), title,
     due_date: val("a_date"), due_time: val("a_time"),
     recurrence_rule: val("a_rec") } });
-  toast("✅ Task assigned & posted to group");
+  toast("✅ Task assigned — it'll post to the group 15 min before it's due");
   go("assignments");
 }
 async function cancelAssignment(id) {

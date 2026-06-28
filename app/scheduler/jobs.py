@@ -114,6 +114,11 @@ async def _assignment_reminders(now) -> None:
     from app.telegram import notify
 
     group_id = get_settings().staff_group_chat_id
+
+    # Post assigned-task cards 15 min before their due time (not at creation).
+    for a in assignment_service.due_to_post(now):
+        await assignment_service.post_card(a)
+
     for ev in assignment_service.reminders_due(now):
         if markers.done(ev["key"]):
             continue
