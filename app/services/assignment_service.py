@@ -34,6 +34,16 @@ def _mention(a: dict) -> str:
     return _html.escape(str(name))
 
 
+def _time12(t: str) -> str:
+    """'15:00' -> '3:00 PM'. Leaves anything unparseable as-is."""
+    try:
+        from datetime import time as _t
+        hh, mm = (t.split(":") + ["0"])[:2]
+        return _t(int(hh), int(mm)).strftime("%I:%M %p").lstrip("0")
+    except Exception:
+        return t
+
+
 def _due_line(a: dict) -> str:
     d = str(a.get("Due Date") or "")
     if not d:
@@ -44,23 +54,37 @@ def _due_line(a: dict) -> str:
         label = d
     t = str(a.get("Due Time") or "")
     if t:
-        label += f" · {t}"
+        label += f" · {_time12(t)}"
     return f"\n📅 Due: {messages.esc(label)}"
+
+
+def has_proof(a: dict) -> bool:
+    return bool(str(a.get("Proof File ID") or ""))
+
+
+def done_markup(a: dict):
+    """The ✅ Mark Done button is only revealed once a photo proof is posted."""
+    if has_proof(a):
+        return keyboards.assignment_done_button(a["Assignment ID"])
+    return None
 
 
 def card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> str:
     rule = str(a.get("Recurrence Rule") or "")
     rep = f"\n🔁 Repeats: {messages.esc(recurrence.describe(rule))}" if rule else ""
+    if has_proof(a):
+        foot = "📸 <b>Photo received.</b> Tap ✅ Mark Done below to confirm."
+    else:
+        foot = ("📸 <b>To complete:</b> reply to this message with a photo of the "
+                "finished task. The Mark Done button appears once your photo is in.")
     return (f"{header}\n\n<b>{messages.esc(a.get('Title'))}</b>\n\n"
-            f"👤 {_mention(a)}{_due_line(a)}{rep}\n\n"
-            f"📸 <b>To complete:</b> reply to this message with a photo of the finished "
-            f"task — or tap ✅ Mark Done below.")
+            f"👤 {_mention(a)}{_due_line(a)}{rep}\n\n{foot}")
 
 
 async def _post_card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> None:
     sent = await notify.send_message(
         get_settings().staff_group_chat_id, card(a, header),
-        reply_markup=keyboards.assignment_done_button(a["Assignment ID"]))
+        reply_markup=done_markup(a))
     if sent:
         repo.update(a["Assignment ID"], {"Group Message ID": str(sent.message_id)})
 
@@ -111,12 +135,31 @@ def find_by_group_message(message_id: int | str) -> dict | None:
     return None
 
 
-async def mark_done(assignment_id: str, by_tg_id: int,
-                    proof_file_id: str = "") -> tuple[bool, str]:
-    """Staff/admin marks an assignment done. Returns (ok, message).
+async def attach_proof(assignment_id: str, by_tg_id: int,
+                       file_id: str) -> tuple[bool, str]:
+    """A staff photo is posted as proof: store it and REVEAL the Mark Done button
+    on the task card (does not complete the task yet)."""
+    a = repo.get(assignment_id)
+    if not a or str(a.get("Status")) != repo.ST_OPEN:
+        return False, ""
+    if not staff_repo.is_admin(by_tg_id) and str(a.get("Assigned Telegram User ID")) != str(by_tg_id):
+        return False, ""
+    repo.update(assignment_id, {"Proof File ID": file_id})
+    a = repo.get(assignment_id)
 
-    proof_file_id is set when completion came from a photo posted to the group.
-    """
+    gid = a.get("Group Message ID")
+    if gid:
+        try:
+            await notify.edit_message(
+                get_settings().staff_group_chat_id, int(gid),
+                card(a), reply_markup=done_markup(a))
+        except Exception:
+            pass
+    return True, "📸 Photo received! Tap ✅ Mark Done to confirm."
+
+
+async def mark_done(assignment_id: str, by_tg_id: int) -> tuple[bool, str]:
+    """Staff/admin confirms an assignment done (after a photo proof was posted)."""
     a = repo.get(assignment_id)
     if not a:
         return False, "This task no longer exists."
@@ -125,15 +168,16 @@ async def mark_done(assignment_id: str, by_tg_id: int,
     is_admin = staff_repo.is_admin(by_tg_id)
     if not is_admin and str(a.get("Assigned Telegram User ID")) != str(by_tg_id):
         return False, "This task is assigned to someone else."
+    if not has_proof(a) and not is_admin:
+        return False, "Please post a photo of the finished task first."
 
-    via = "photo" if proof_file_id else "button"
     repo.update(assignment_id, {"Status": repo.ST_DONE, "Completed At": repo._now(),
-                                "Completed Via": via, "Proof File ID": proof_file_id})
+                                "Completed Via": "photo" if has_proof(a) else "button"})
 
     # Edit the group card to a small completed state (no button).
     gid = a.get("Group Message ID")
     if gid:
-        proof_tag = " 📷" if proof_file_id else ""
+        proof_tag = " 📷" if has_proof(a) else ""
         try:
             await notify.edit_message(
                 get_settings().staff_group_chat_id, int(gid),
@@ -146,7 +190,7 @@ async def mark_done(assignment_id: str, by_tg_id: int,
     nxt = _generate_next_row(a)
     if nxt:
         await _post_card(nxt, header="🔁 <b>NEXT TASK</b>")
-    return True, ("Proof received ✅" if proof_file_id else "Marked done ✅")
+    return True, "Marked done ✅"
 
 
 # ----------------------------------------------------------------- reminders

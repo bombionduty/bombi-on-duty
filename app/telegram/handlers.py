@@ -581,11 +581,10 @@ async def on_group_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         return  # can't tell which task — ignore quietly
 
     file_id = msg.photo[-1].file_id
-    ok, _ = await assignment_service.mark_done(target["Assignment ID"], uid, proof_file_id=file_id)
+    ok, note = await assignment_service.attach_proof(target["Assignment ID"], uid, file_id)
     if ok:
         await msg.reply_text(
-            f"✅ Proof received — <b>{messages.esc(target.get('Title'))}</b> marked done. Thank you! 🍓",
-            parse_mode="HTML")
+            f"{note}\n<b>{messages.esc(target.get('Title'))}</b>", parse_mode="HTML")
 
 
 def register(application) -> None:

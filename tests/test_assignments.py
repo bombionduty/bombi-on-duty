@@ -85,27 +85,54 @@ def test_oneoff_generates_nothing(monkeypatch):
     assert svc._generate_next_row(OPEN_TIMED) is None  # no rule -> nothing
 
 
-# ------------------------------------------------------------- done auth
-def test_only_assignee_or_admin_can_mark_done(monkeypatch):
-    monkeypatch.setattr(repo, "get", lambda i: dict(OPEN_TIMED))
+# --------------------------------------------------------- 12-hour display
+def test_due_time_shown_in_12_hour():
+    a = {**OPEN_TIMED, "Due Time": "15:00"}
+    line = svc._due_line(a)
+    assert "3:00 PM" in line and "15:00" not in line
+
+
+# ----------------------------------------------- photo required before done
+def test_mark_done_blocked_without_photo(monkeypatch):
+    monkeypatch.setattr(repo, "get", lambda i: dict(OPEN_TIMED))  # no Proof File ID
     monkeypatch.setattr(repo, "update", lambda i, c: True)
+    monkeypatch.setattr(svc.staff_repo, "is_admin", lambda uid: False)
+    ok, msg = asyncio.run(svc.mark_done("ASG1", 222))
+    assert ok is False and "photo" in msg.lower()  # must post a photo first
+
+
+def test_card_button_hidden_until_proof(monkeypatch):
+    monkeypatch.setattr(svc.staff_repo, "get_by_staff_id", lambda sid: None)
+    no_proof = dict(OPEN_TIMED)
+    assert svc.done_markup(no_proof) is None              # button hidden
+    assert "reply" in svc.card(no_proof).lower()
+    with_proof = {**OPEN_TIMED, "Proof File ID": "F1"}
+    assert svc.done_markup(with_proof) is not None         # button revealed
+    assert "Mark Done" in svc.card(with_proof)
+
+
+def test_attach_proof_reveals_button(monkeypatch):
+    saved = {}
+    state = dict(OPEN_TIMED)
+
+    def _get(i):
+        return {**state, **saved}
+    monkeypatch.setattr(repo, "get", _get)
+    monkeypatch.setattr(repo, "update", lambda i, c: saved.update(c) or True)
     monkeypatch.setattr(svc.staff_repo, "is_admin", lambda uid: False)
 
     async def _noedit(*a, **k):
         pass
     monkeypatch.setattr(svc.notify, "edit_message", _noedit)
-    monkeypatch.setattr(svc, "_generate_next_row", lambda a: None)
 
-    ok_wrong, _ = asyncio.run(svc.mark_done("ASG1", 999))   # not the assignee
-    assert ok_wrong is False
-    ok_right, _ = asyncio.run(svc.mark_done("ASG1", 222))   # the assignee (tg id 222)
-    assert ok_right is True
+    ok, _ = asyncio.run(svc.attach_proof("ASG1", 222, "FILE123"))
+    assert ok and saved["Proof File ID"] == "FILE123"
+    assert "Status" not in saved  # proof does NOT complete the task
 
 
-# ------------------------------------------------------------- photo proof
-def test_photo_proof_records_file_and_via(monkeypatch):
+def test_done_after_proof_succeeds(monkeypatch):
     saved = {}
-    monkeypatch.setattr(repo, "get", lambda i: dict(OPEN_TIMED))
+    monkeypatch.setattr(repo, "get", lambda i: {**OPEN_TIMED, "Proof File ID": "F1"})
     monkeypatch.setattr(repo, "update", lambda i, c: saved.update(c) or True)
     monkeypatch.setattr(svc.staff_repo, "is_admin", lambda uid: False)
     monkeypatch.setattr(svc, "_generate_next_row", lambda a: None)
@@ -114,8 +141,8 @@ def test_photo_proof_records_file_and_via(monkeypatch):
         pass
     monkeypatch.setattr(svc.notify, "edit_message", _noedit)
 
-    ok, msg = asyncio.run(svc.mark_done("ASG1", 222, proof_file_id="FILE123"))
-    assert ok and saved["Proof File ID"] == "FILE123" and saved["Completed Via"] == "photo"
+    ok, _ = asyncio.run(svc.mark_done("ASG1", 222))
+    assert ok and saved["Status"] == repo.ST_DONE and saved["Completed Via"] == "photo"
 
 
 def test_find_by_group_message_matches_open(monkeypatch):

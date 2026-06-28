@@ -103,7 +103,7 @@ async def _assignment_reminders(now) -> None:
     and duplicate-safe via the marker ledger (keys embed the assignment + slot)."""
     from app.config import get_settings
     from app.services import assignment_service
-    from app.telegram import keyboards, notify
+    from app.telegram import notify
 
     group_id = get_settings().staff_group_chat_id
     for ev in assignment_service.reminders_due(now):
@@ -114,7 +114,7 @@ async def _assignment_reminders(now) -> None:
                   else "🔔 <b>REMINDER — still open</b>")
         await notify.send_message(
             group_id, assignment_service.card(a, header=header),
-            reply_markup=keyboards.assignment_done_button(a["Assignment ID"]))
+            reply_markup=assignment_service.done_markup(a))
         markers.mark(ev["key"])
 
 
