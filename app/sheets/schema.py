@@ -117,7 +117,8 @@ HEADERS: dict[str, list[str]] = {
         "Assignment ID", "Series ID", "Title", "Assigned Staff ID",
         "Assigned Staff Name", "Assigned Telegram User ID", "Due Date",
         "Due Time", "Status", "Recurrence Rule", "Group Message ID",
-        "Created By", "Created At", "Completed At", "Updated At",
+        "Completed Via", "Proof File ID", "Created By", "Created At",
+        "Completed At", "Updated At",
     ],
 
     # ---- Owner Mode tabs (separate from all staff data above) ----

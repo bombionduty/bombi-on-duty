@@ -52,7 +52,8 @@ def card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> str:
     rule = str(a.get("Recurrence Rule") or "")
     rep = f"\n🔁 Repeats: {messages.esc(recurrence.describe(rule))}" if rule else ""
     return (f"{header}\n\n<b>{messages.esc(a.get('Title'))}</b>\n\n"
-            f"👤 {_mention(a)}{_due_line(a)}{rep}")
+            f"👤 {_mention(a)}{_due_line(a)}{rep}\n\n"
+            f"<i>Tap ✅ Mark Done, or reply to this message with a photo when finished.</i>")
 
 
 async def _post_card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> None:
@@ -96,8 +97,25 @@ def _generate_next_row(a: dict) -> dict | None:
                     series_id=series, created_by=str(a.get("Created By") or ""))
 
 
-async def mark_done(assignment_id: str, by_tg_id: int) -> tuple[bool, str]:
-    """Staff/admin marks an assignment done. Returns (ok, message)."""
+def open_for_staff(tg_id: int | str) -> list[dict]:
+    return [a for a in repo.open_rows()
+            if str(a.get("Assigned Telegram User ID")) == str(tg_id)]
+
+
+def find_by_group_message(message_id: int | str) -> dict | None:
+    mid = str(message_id)
+    for a in repo.open_rows():
+        if str(a.get("Group Message ID")) == mid:
+            return a
+    return None
+
+
+async def mark_done(assignment_id: str, by_tg_id: int,
+                    proof_file_id: str = "") -> tuple[bool, str]:
+    """Staff/admin marks an assignment done. Returns (ok, message).
+
+    proof_file_id is set when completion came from a photo posted to the group.
+    """
     a = repo.get(assignment_id)
     if not a:
         return False, "This task no longer exists."
@@ -107,15 +125,18 @@ async def mark_done(assignment_id: str, by_tg_id: int) -> tuple[bool, str]:
     if not is_admin and str(a.get("Assigned Telegram User ID")) != str(by_tg_id):
         return False, "This task is assigned to someone else."
 
-    repo.update(assignment_id, {"Status": repo.ST_DONE, "Completed At": repo._now()})
+    via = "photo" if proof_file_id else "button"
+    repo.update(assignment_id, {"Status": repo.ST_DONE, "Completed At": repo._now(),
+                                "Completed Via": via, "Proof File ID": proof_file_id})
 
     # Edit the group card to a small completed state (no button).
     gid = a.get("Group Message ID")
     if gid:
+        proof_tag = " 📷" if proof_file_id else ""
         try:
             await notify.edit_message(
                 get_settings().staff_group_chat_id, int(gid),
-                f"✅ <b>Done — {messages.esc(a.get('Title'))}</b>\n👤 {_mention(a)}",
+                f"✅ <b>Done{proof_tag} — {messages.esc(a.get('Title'))}</b>\n👤 {_mention(a)}",
                 reply_markup=None)
         except Exception:
             pass
@@ -124,7 +145,7 @@ async def mark_done(assignment_id: str, by_tg_id: int) -> tuple[bool, str]:
     nxt = _generate_next_row(a)
     if nxt:
         await _post_card(nxt, header="🔁 <b>NEXT TASK</b>")
-    return True, "Marked done ✅"
+    return True, ("Proof received ✅" if proof_file_id else "Marked done ✅")
 
 
 # ----------------------------------------------------------------- reminders

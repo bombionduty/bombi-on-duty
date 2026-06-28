@@ -30,7 +30,7 @@ from app.services import (
     summary_service,
     task_service,
 )
-from app.telegram import keyboards, notify
+from app.telegram import keyboards, messages, notify
 
 log = logging.getLogger(__name__)
 
@@ -555,6 +555,39 @@ async def on_issue_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text("✅ Logged — the admin has been notified with your note.")
 
 
+async def on_group_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Staff posts photo proof in the group to complete an assigned task.
+
+    Matches the photo to an open assignment either by replying to the task card
+    or — if the sender has exactly one open task — automatically. Stays silent
+    when it can't confidently match, so ordinary group photos are untouched.
+    """
+    msg = update.message
+    if not msg or not msg.photo:
+        return
+    if msg.chat_id != get_settings().staff_group_chat_id:
+        return  # only the staff group; never elsewhere
+    uid = msg.from_user.id if msg.from_user else 0
+
+    from app.services import assignment_service
+    target = None
+    if msg.reply_to_message:
+        target = assignment_service.find_by_group_message(msg.reply_to_message.message_id)
+    if not target:
+        opens = assignment_service.open_for_staff(uid)
+        if len(opens) == 1:
+            target = opens[0]
+    if not target:
+        return  # can't tell which task — ignore quietly
+
+    file_id = msg.photo[-1].file_id
+    ok, _ = await assignment_service.mark_done(target["Assignment ID"], uid, proof_file_id=file_id)
+    if ok:
+        await msg.reply_text(
+            f"✅ Proof received — <b>{messages.esc(target.get('Title'))}</b> marked done. Thank you! 🍓",
+            parse_mode="HTML")
+
+
 def register(application) -> None:
     h = application.add_handler
     # Group 1 runs alongside the main handlers; passively refreshes usernames.
@@ -562,6 +595,8 @@ def register(application) -> None:
     # Capture the OIC's typed issue (private text, not a command) after they
     # tap Mark Incomplete. Harmlessly ignores messages when nobody's flagging.
     h(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, on_issue_reply))
+    # Staff photo proof in the group completes an assigned task.
+    h(MessageHandler(filters.ChatType.GROUPS & filters.PHOTO, on_group_photo))
     h(CommandHandler("start", cmd_start))
     h(CommandHandler("help", cmd_help))
     h(CommandHandler(["note", "issue"], cmd_note))

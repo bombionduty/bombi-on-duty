@@ -100,3 +100,34 @@ def test_only_assignee_or_admin_can_mark_done(monkeypatch):
     assert ok_wrong is False
     ok_right, _ = asyncio.run(svc.mark_done("ASG1", 222))   # the assignee (tg id 222)
     assert ok_right is True
+
+
+# ------------------------------------------------------------- photo proof
+def test_photo_proof_records_file_and_via(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(repo, "get", lambda i: dict(OPEN_TIMED))
+    monkeypatch.setattr(repo, "update", lambda i, c: saved.update(c) or True)
+    monkeypatch.setattr(svc.staff_repo, "is_admin", lambda uid: False)
+    monkeypatch.setattr(svc, "_generate_next_row", lambda a: None)
+
+    async def _noedit(*a, **k):
+        pass
+    monkeypatch.setattr(svc.notify, "edit_message", _noedit)
+
+    ok, msg = asyncio.run(svc.mark_done("ASG1", 222, proof_file_id="FILE123"))
+    assert ok and saved["Proof File ID"] == "FILE123" and saved["Completed Via"] == "photo"
+
+
+def test_find_by_group_message_matches_open(monkeypatch):
+    a = {**OPEN_TIMED, "Group Message ID": "777"}
+    _rows(monkeypatch, [a])
+    assert svc.find_by_group_message(777)["Assignment ID"] == "ASG1"
+    assert svc.find_by_group_message(111) is None
+
+
+def test_open_for_staff_filters_by_tg_id(monkeypatch):
+    a1 = {**OPEN_TIMED, "Assignment ID": "A1", "Assigned Telegram User ID": "222"}
+    a2 = {**OPEN_TIMED, "Assignment ID": "A2", "Assigned Telegram User ID": "333"}
+    _rows(monkeypatch, [a1, a2])
+    mine = svc.open_for_staff(222)
+    assert len(mine) == 1 and mine[0]["Assignment ID"] == "A1"
