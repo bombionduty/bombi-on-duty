@@ -70,7 +70,8 @@ const PAGE_FN = {
           <option ${r.Status==="CLOSED"?"selected":""}>CLOSED</option></select>
         <label>Opener</label><select id="op_${r.Date}"><option value="">—</option>${opts(r["Opener Staff ID"])}</select>
         <label>Closer</label><select id="cl_${r.Date}"><option value="">—</option>${opts(r["Closer Staff ID"])}</select>
-        <button class="ghost" onclick="saveSched('${r.Date}')">Save ${esc(r.Date)}</button></div>`;
+        <button class="ghost" onclick="saveSched('${r.Date}')">💾 Save ${esc(r.Date)}</button>
+        <button class="secondary" onclick="notifyAssignment('${r.Date}')">📢 Notify Group</button></div>`;
     });
     h += `<button class="secondary" onclick="copyWeek()">Copy This Week → Next Week</button>`;
     app.innerHTML = h;
@@ -230,6 +231,10 @@ async function saveSched(date) {
     date, status: val(`st_${date}`),
     opener_staff_id: val(`op_${date}`), closer_staff_id: val(`cl_${date}`) } });
   toast("Saved " + date);
+}
+async function notifyAssignment(date) {
+  await api(`/api/admin/notify-assignment`, { method: "POST", body: { date } });
+  toast("📢 Notified staff group");
 }
 async function copyWeek() {
   const s = new Date(); const src = s.toISOString().slice(0,10);

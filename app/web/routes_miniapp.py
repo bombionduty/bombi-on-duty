@@ -296,6 +296,35 @@ async def admin_schedule_set(payload: dict, caller: Caller = Depends(current_cal
     return {"ok": True}
 
 
+@router.post("/admin/notify-assignment")
+async def admin_notify_assignment(payload: dict, caller: Caller = Depends(current_caller)):
+    """Manually send an assignment notification to the staff group.
+
+    Useful if the admin changes the schedule and wants to notify staff
+    immediately without waiting for the next automated message.
+    """
+    _admin(caller)
+    d = clock.parse_date(payload["date"])
+    sched = schedule_repo.get(d)
+    if not sched:
+        raise HTTPException(404, "No schedule found for this date.")
+
+    from app.services import task_service
+    opener_id = str(sched.get("Opener Staff ID") or "")
+    closer_id = str(sched.get("Closer Staff ID") or "")
+
+    opener = staff_repo.get_by_staff_id(opener_id) if opener_id else None
+    closer = staff_repo.get_by_staff_id(closer_id) if closer_id else None
+
+    # Build a summary message.
+    msg = f"📋 <b>Schedule for {messages.esc(d.strftime('%b %d, %A'))}</b>\n\n"
+    msg += f"🌅 <b>Opening</b>: {messages.esc(opener.get('Staff Name') or 'Unassigned')}\n"
+    msg += f"🌙 <b>Closing</b>: {messages.esc(closer.get('Staff Name') or 'Unassigned')}"
+
+    await notify.send_message(get_settings().staff_group_chat_id, msg)
+    return {"ok": True, "notified": True}
+
+
 @router.post("/admin/copyweek")
 async def admin_copyweek(payload: dict, caller: Caller = Depends(current_caller)):
     _admin(caller)
