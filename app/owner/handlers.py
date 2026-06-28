@@ -25,9 +25,16 @@ from telegram.ext import (
 
 from app import clock
 from app.owner import constants as oc
-from app.owner import dashboard, draft, keyboards, messages, parser, repo, routing, service
+from app.owner import dashboard, draft, keyboards, messages, parser, repo, routing, service, summary
+
 
 log = logging.getLogger(__name__)
+
+
+async def _refresh_views() -> None:
+    """Keep both live views current: the pinned dashboard and the morning summary."""
+    await dashboard.refresh()
+    await summary.refresh()
 
 OWNER_GROUP_NAME = "Bombi On Call"
 OWNER_CALLBACK_PATTERN = r"^own:"
@@ -75,7 +82,7 @@ async def cmd_setupowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
         await ctx.bot.pin_chat_message(chat.id, msg.message_id, disable_notification=True)
     except Exception:
         pass
-    await dashboard.refresh()
+    await _refresh_views()
 
 
 async def cmd_unsetupowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -160,7 +167,7 @@ async def _handle_await_input(update: Update, ctx, text: str) -> None:
         if not d:
             return await update.message.reply_text("Couldn't read that date — try again from the card.")
         t = service.reschedule(task_id, d)
-        await dashboard.refresh()
+        await _refresh_views()
         if t:
             await update.message.reply_text(
                 messages.task_card(t, header="📅 <b>RESCHEDULED</b>"), parse_mode="HTML",
@@ -188,7 +195,7 @@ async def _handle_await_input(update: Update, ctx, text: str) -> None:
         await _safe_delete(ctx, meta.get("capture_chat"), meta.get("confirm_msg"))
         await _safe_delete(ctx, meta.get("capture_chat"), meta.get("capture_msg"))
         await _send_cards(ctx, update.effective_chat.id, created)
-        await dashboard.refresh()
+        await _refresh_views()
         return
 
     await update.message.reply_text(messages.confirm_card(parsed), parse_mode="HTML",
@@ -264,7 +271,7 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         await _safe_delete(ctx, q.message.chat_id, q.message.message_id)
         await _safe_delete(ctx, meta.get("capture_chat"), meta.get("capture_msg"))
         await _send_cards(ctx, q.message.chat_id, created)
-        await dashboard.refresh()
+        await _refresh_views()
         return
 
     if action == "cx":
@@ -295,7 +302,7 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         await _safe_delete(ctx, q.message.chat_id, q.message.message_id)
         await _safe_delete(ctx, meta.get("capture_chat"), meta.get("capture_msg"))
         await _send_cards(ctx, q.message.chat_id, created)
-        await dashboard.refresh()
+        await _refresh_views()
         return
 
     # ---------- edit flow ----------
@@ -365,13 +372,13 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
 
     # ---------- dashboard helpers ----------
     if action == "dash":
-        await dashboard.refresh()
+        await _refresh_views()
         return await q.answer("Refreshed 🍓")
     if action == "hint":
         return await q.answer("Just type your task(s) here and I'll catch them!", show_alert=True)
     if action == "dd":  # one-tap Done from the dashboard (refresh in place)
         res = service.complete(parts[2])
-        await dashboard.refresh()
+        await _refresh_views()
         return await q.answer("Done ✅" if res else "Already done")
 
     # ---------- settings / setup ----------
@@ -450,14 +457,14 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             repo.update_task(task_id, {"Source Message ID": ""})
             await q.answer("🔵 Parked as waiting.")
             await _close_card(ctx, q, f"🔵 <b>Waiting — {title}</b>")
-            await dashboard.refresh()
+            await _refresh_views()
             return
         if action == "dn":
             res = service.complete(task_id)
             repo.update_task(task_id, {"Source Message ID": ""})
             await q.answer("✅ Done! Dashboard updated." if res else "Already done")
             await _close_card(ctx, q, f"✅ <b>Done — {title}</b>")
-            await dashboard.refresh()
+            await _refresh_views()
             return
         if action == "rs":
             await q.answer()
@@ -479,14 +486,14 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             await q.edit_message_text(
                 messages.task_card(fresh, header=f"{messages.cat_emoji(fresh)} <b>RESCHEDULED</b>"),
                 parse_mode="HTML", reply_markup=keyboards.task_card_kb(task_id, rec))
-            await dashboard.refresh()
+            await _refresh_views()
             return
         if action == "sk":
             service.skip(task_id)
             repo.update_task(task_id, {"Source Message ID": ""})
             await q.answer("⏭ Skipped. The schedule will continue.")
             await _close_card(ctx, q, f"⏭ <b>Skipped — {title}</b>")
-            await dashboard.refresh()
+            await _refresh_views()
             return
         if action == "cxt":  # ask for confirmation
             await q.answer()
@@ -497,7 +504,7 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             repo.update_task(task_id, {"Source Message ID": ""})
             await q.answer("🗑 Task cancelled.")
             await _close_card(ctx, q, f"🗑 <b>Cancelled — {title}</b>")
-            await dashboard.refresh()
+            await _refresh_views()
             return
         if action == "cxk":  # keep -> restore the compact card
             await q.answer("Kept ↩️")
@@ -541,7 +548,7 @@ async def cmd_week(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_owner(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _owner_ok(update):
         return
-    await dashboard.refresh()
+    await _refresh_views()
     await _safe_delete(ctx, update.effective_chat.id, update.effective_message.message_id)
 
 

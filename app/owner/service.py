@@ -269,6 +269,29 @@ def build_buckets() -> dict:
     return buckets
 
 
+def recurring_overview() -> list[dict]:
+    """Active recurring tasks for the morning summary: title, human rule, next due."""
+    out = []
+    today = clock.today()
+    for rec in repo.active_recurring():
+        rule = str(rec.get("Rule") or "")
+        last = rec.get("Last Generated")
+        try:
+            base = clock.parse_date(str(last)) if last else today
+        except Exception:
+            base = today
+        nd = recurrence.next_due(rule, base)
+        # If the next computed date is already past, roll forward from today.
+        if nd and nd < today:
+            nd = recurrence.next_due(rule, today)
+        out.append({
+            "title": str(rec.get("Title") or ""),
+            "rule": recurrence.describe(rule) or rule,
+            "next": nd.strftime("%b %-d") if nd else "",
+        })
+    return out
+
+
 def weekly_stats(buckets: dict) -> dict:
     return {
         "completed": len(buckets.get(oc.B_COMPLETED, [])),

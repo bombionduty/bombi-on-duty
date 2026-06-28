@@ -55,6 +55,7 @@ KNOWN_PEOPLE = ["alex", "accountant", "finance"]
 SET_DAILY_SUMMARY = "owner_daily_summary_time"        # HH:MM
 SET_WEEKLY_SUMMARY = "owner_weekly_summary"           # "SUN 19:00"
 SET_DASHBOARD_MSG_ID = "owner_dashboard_message_id"
+SET_TODAY_MSG_ID = "owner_today_message_id"           # live morning summary
 SET_GREETING_NAME = "owner_greeting_name"
 SET_PAUSED = "owner_reminders_paused"                 # "true"/"false"
 SET_LEAD_DAYS = "owner_bill_lead_days"                # bill advance reminder days

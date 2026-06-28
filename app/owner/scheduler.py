@@ -11,7 +11,7 @@ import logging
 
 from app import clock
 from app.owner import constants as oc
-from app.owner import dashboard, keyboards, messages, repo, service
+from app.owner import dashboard, keyboards, messages, repo, service, summary
 from app.services import markers
 from app.telegram import notify
 
@@ -59,14 +59,12 @@ async def owner_tick() -> None:
 
     await _send_task_reminders(gid, now)
 
-    # Daily summary
+    # Daily summary — a live message that edits itself as the day's tasks change.
     if hhmm == repo.setting_or_default(oc.SET_DAILY_SUMMARY):
         key = f"own_daily::{now.date().isoformat()}"
         if not markers.done(key):
             service.generate_due_recurrences()  # keep recurring tasks seeded
-            buckets = service.build_buckets()
-            greeting = repo.setting_or_default(oc.SET_GREETING_NAME)
-            await notify.send_message(gid, messages.daily_summary(greeting, buckets))
+            await summary.post()
             await dashboard.refresh()
             markers.mark(key)
 
