@@ -190,6 +190,12 @@ async def submit(
               "submit", "Task", task_id, original_staff_id=task.get("Assigned Staff ID", ""))
 
     await task_service.refresh_group_card(task_id)
+    # Tidy the group: remove the "still pending" reminder messages now it's done.
+    try:
+        from app.services import ops_service
+        await ops_service.clear_reminders(task_id)
+    except Exception:
+        log.exception("Could not clear reminders for %s", task_id)
     fresh = task_repo.get(task_id)
 
     # Instant notifications: admin summary + OIC review package (evidence + buttons).

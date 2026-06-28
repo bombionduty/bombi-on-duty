@@ -109,6 +109,64 @@ def build_text(d: date) -> str:
     return "\n".join(parts)
 
 
+def _gm_checklist_status(task: dict | None) -> str:
+    if not task:
+        return "🔴 Not Submitted"
+    status = task.get("Original Submission Status")
+    res = task.get("Resolution Status")
+    if status == constants.SUB_CLOSED:
+        return "➖ Closed Day"
+    if res == constants.RES_RECOVERED_OIC:
+        return "🟢 Recovered by OIC"
+    if res == constants.RES_LATE_BY_STAFF or status == constants.SUB_LATE:
+        return "🟠 Submitted Late"
+    if status == constants.SUB_ON_TIME:
+        return "✅ Submitted On Time"
+    return "🔴 Not Submitted"
+
+
+def _gm_assignment_status(a: dict) -> str:
+    if str(a.get("Status")) == "Done":
+        return "✅ Done 📷" if str(a.get("Completed Via")) == "photo" else "✅ Done"
+    return "🔴 Not Done"
+
+
+def good_morning_text(d: date) -> str:
+    """Group recap of the previous day's checklists + assigned tasks."""
+    e = messages.esc
+    sched = schedule_repo.get(d)
+    by_type = {t.get("Checklist Type"): t for t in task_repo.for_date(d)}
+    opener = (sched.get("Opener Name") if sched else "") or "—"
+    closer = (sched.get("Closer Name") if sched else "") or "—"
+
+    lines = [f"🌞 <b>Good morning!</b> Here's yesterday's log — {e(clock.fmt_date(d))}", ""]
+    if sched and str(sched.get("Status")) == constants.DAY_CLOSED:
+        lines.append("Store was <b>CLOSED</b> — no checklists required.")
+    else:
+        for ct, emoji, who in (
+            (constants.CHECK_OPENING, "🌅", opener),
+            (constants.CHECK_HANDOVER, "🔁", opener),
+            (constants.CHECK_CLOSING, "🌙", closer),
+        ):
+            lines.append(f"{emoji} <b>{e(ct)}</b>: {e(who)} — {_gm_checklist_status(by_type.get(ct))}")
+
+    from app.repositories import assignment_repo
+    todays = [a for a in assignment_repo.all_rows()
+              if str(a.get("Due Date")) == d.isoformat()
+              and str(a.get("Status")) != assignment_repo.ST_CANCELLED]
+    if todays:
+        lines.append("")
+        lines.append("📋 <b>Tasks</b>")
+        for a in todays:
+            lines.append(f"• {e(a.get('Title'))} — {e(a.get('Assigned Staff Name'))}: "
+                         f"{_gm_assignment_status(a)}")
+    return "\n".join(lines)
+
+
+async def send_good_morning(d: date) -> None:
+    await notify.send_message(get_settings().staff_group_chat_id, good_morning_text(d))
+
+
 async def send_daily_summary(d: date) -> None:
     settings = get_settings()
     text = build_text(d)

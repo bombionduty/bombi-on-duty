@@ -25,6 +25,7 @@ OIC_REVIEWS = "OIC Reviews"
 SETTINGS = "Settings"
 AUDIT_LOG = "Audit Log"
 STAFF_ASSIGNMENTS = "Staff Assignments"
+TASK_REMINDERS = "Task Reminders"
 
 # ---- Owner Mode (Bombi On Call) — completely separate from staff data ----
 ADMIN_TASKS = "AdminTasks"
@@ -119,6 +120,9 @@ HEADERS: dict[str, list[str]] = {
         "Due Time", "Status", "Recurrence Rule", "Group Message ID",
         "Completed Via", "Proof File ID", "Created By", "Created At",
         "Completed At", "Updated At",
+    ],
+    TASK_REMINDERS: [
+        "Task ID", "Chat ID", "Message ID", "Deleted", "Created At",
     ],
 
     # ---- Owner Mode tabs (separate from all staff data above) ----

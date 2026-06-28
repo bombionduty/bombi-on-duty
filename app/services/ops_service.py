@@ -50,12 +50,27 @@ async def send_due_reminders(task: dict) -> None:
         fresh = task_service.with_mention(task)
         mention = fresh.get("_assignee_mention") or task.get("Assigned Staff Name")
         group = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
-        await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
+        sent = await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
+        # Track the group reminder so we can delete it once the task is submitted.
+        if sent:
+            from app.repositories import reminder_repo
+            reminder_repo.log_reminder(task["Task ID"], group, sent.message_id)
         # Best-effort private DM too (works only if they've started the bot).
         tg = task.get("Assigned Telegram User ID")
         if tg:
             await notify.send_message(tg, messages.staff_reminder(task, missing))
         markers.mark(key)
+
+
+async def clear_reminders(task_id: str) -> None:
+    """Delete the group reminder messages for a task (called on submit) so the
+    chat doesn't keep stale 'still pending' nudges after it's done."""
+    from app.repositories import reminder_repo
+    group = get_settings().staff_group_chat_id
+    for r in reminder_repo.pending_for(task_id):
+        chat = r.get("Chat ID") or group
+        if await notify.delete_message(chat, r.get("Message ID")):
+            reminder_repo.mark_deleted(r.get("Message ID"))
 
 
 async def escalate_if_due(task: dict) -> None:

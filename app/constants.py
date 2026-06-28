@@ -87,6 +87,8 @@ SETTING_EMERGENCY_TAKEOVER = "emergency_takeover_enabled"
 # When true, the admin gets an instant summary + the evidence photos the moment
 # a checklist is submitted (not just the midnight daily summary).
 SETTING_AUTO_SEND_ON_SUBMIT = "auto_send_evidence_on_submit"
+# "Good morning" recap of the PREVIOUS day's log, posted to the staff group.
+SETTING_GOOD_MORNING_TIME = "good_morning_summary_time"
 
 SETTING_DEFAULTS = {
     SETTING_OIC_RECOVERY_DAYS: "7",
@@ -97,6 +99,7 @@ SETTING_DEFAULTS = {
     SETTING_RANDOM_SPOT_CHECKS: "false",
     SETTING_EMERGENCY_TAKEOVER: "false",
     SETTING_AUTO_SEND_ON_SUBMIT: "true",
+    SETTING_GOOD_MORNING_TIME: "11:00",
 }
 
 # Days-of-week helpers

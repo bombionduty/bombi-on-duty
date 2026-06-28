@@ -64,6 +64,16 @@ async def edit_message(chat_id: int | str, message_id: int, text: str,
     ))
 
 
+async def delete_message(chat_id: int | str, message_id: int) -> bool:
+    """Best-effort delete; returns False instead of raising if it can't."""
+    try:
+        await bot().delete_message(chat_id=chat_id, message_id=int(message_id))
+        return True
+    except Exception as e:
+        log.debug("delete_message failed (%s): %s", message_id, e)
+        return False
+
+
 async def send_photo(chat_id: int | str, photo_bytes: bytes, caption: str = ""):
     return await _retry(lambda: bot().send_photo(
         chat_id=chat_id, photo=photo_bytes, caption=caption,

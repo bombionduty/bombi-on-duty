@@ -81,6 +81,14 @@ async def _tick_inner() -> None:
             await summary_service.send_daily_summary(yesterday)
             markers.mark(key)
 
+    # 4b) "Good morning" group recap of the previous day (default 11:00).
+    gm_time = settings_store.get(constants.SETTING_GOOD_MORNING_TIME)
+    if _hhmm(now) == gm_time:
+        key = f"goodmorning::{today.isoformat()}"
+        if not markers.done(key):
+            await summary_service.send_good_morning(yesterday)
+            markers.mark(key)
+
     # 5) Weekly schedule reminder (e.g. "SUN 18:00").
     await _maybe_weekly(now, settings_store.get(constants.SETTING_WEEKLY_SCHEDULE_REMINDER),
                         "weekly_sched", schedule_service.send_weekly_schedule_reminder)
