@@ -12,6 +12,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app import clock, constants
+from app.config import get_settings
+from app.telegram import messages, notify
 from app.repositories import (
     checklist_repo,
     evidence_repo,
@@ -315,11 +317,13 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
 
     opener = staff_repo.get_by_staff_id(opener_id) if opener_id else None
     closer = staff_repo.get_by_staff_id(closer_id) if closer_id else None
+    opener_name = opener.get("Staff Name") if opener else "Unassigned"
+    closer_name = closer.get("Staff Name") if closer else "Unassigned"
 
     # Build a summary message.
     msg = f"📋 <b>Schedule for {messages.esc(d.strftime('%b %d, %A'))}</b>\n\n"
-    msg += f"🌅 <b>Opening</b>: {messages.esc(opener.get('Staff Name') or 'Unassigned')}\n"
-    msg += f"🌙 <b>Closing</b>: {messages.esc(closer.get('Staff Name') or 'Unassigned')}"
+    msg += f"🌅 <b>Opening</b>: {messages.esc(opener_name)}\n"
+    msg += f"🌙 <b>Closing</b>: {messages.esc(closer_name)}"
 
     await notify.send_message(get_settings().staff_group_chat_id, msg)
     return {"ok": True, "notified": True}
