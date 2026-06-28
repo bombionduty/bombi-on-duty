@@ -146,7 +146,8 @@ async def _handle_await_input(update: Update, ctx, text: str) -> None:
         key = kind.split(":", 1)[1]
         val = text.strip()
         keymap = {"daily": oc.SET_DAILY_SUMMARY, "weekly": oc.SET_WEEKLY_SUMMARY,
-                  "lead": oc.SET_LEAD_DAYS, "name": oc.SET_GREETING_NAME}
+                  "lead": oc.SET_LEAD_DAYS, "timed": oc.SET_TIMED_LEAD_MIN,
+                  "upcoming": oc.SET_UPCOMING_DAYS, "name": oc.SET_GREETING_NAME}
         if key in keymap and val:
             repo.set_setting(keymap[key], val)
             return await update.message.reply_text(f"✅ Saved. ({val})")
@@ -377,6 +378,7 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
     if action == "setup":
         s = {k: repo.setting_or_default(k) for k in (
             oc.SET_DAILY_SUMMARY, oc.SET_WEEKLY_SUMMARY, oc.SET_LEAD_DAYS,
+            oc.SET_TIMED_LEAD_MIN, oc.SET_UPCOMING_DAYS,
             oc.SET_GREETING_NAME, oc.SET_PAUSED)}
         await q.answer()
         return await q.message.reply_text(
@@ -391,6 +393,8 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         prompts = {"daily": "🌅 Type the daily summary time (HH:MM, 24h), e.g. 09:00",
                    "weekly": "🗓 Type weekly summary as DAY HH:MM, e.g. SUN 19:00",
                    "lead": "⏰ Type bill advance-reminder days, e.g. 3",
+                   "timed": "🕒 Type timed-task advance reminder in minutes, e.g. 60",
+                   "upcoming": "🟡 Type the upcoming window in days, e.g. 3",
                    "name": "🍓 Type the greeting name, e.g. Lesha"}
         if key not in prompts:
             return await q.answer()
@@ -420,7 +424,7 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
         return await q.answer(f"🧹 Cleaned {n} card(s)." if n else "✨ Already tidy!")
 
     # ---------- task-card actions ----------
-    if action in ("dn", "rs", "rx", "sk", "cxt", "cxy", "cxk", "more", "back", "hide"):
+    if action in ("dn", "rs", "rx", "sk", "cxt", "cxy", "cxk", "more", "back", "hide", "wt"):
         task_id = parts[2]
         task = repo.get_task(task_id)
         if not task:
@@ -441,6 +445,13 @@ async def on_owner_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> N
             repo.update_task(task_id, {"Source Message ID": ""})
             await q.answer("🫥 Hidden — still on your dashboard.")
             return await _safe_delete(ctx, q.message.chat_id, q.message.message_id)
+        if action == "wt":  # park as waiting on someone (from an overdue check-in)
+            service.set_waiting(task_id, None)
+            repo.update_task(task_id, {"Source Message ID": ""})
+            await q.answer("🔵 Parked as waiting.")
+            await _close_card(ctx, q, f"🔵 <b>Waiting — {title}</b>")
+            await dashboard.refresh()
+            return
         if action == "dn":
             res = service.complete(task_id)
             repo.update_task(task_id, {"Source Message ID": ""})

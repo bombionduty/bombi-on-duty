@@ -34,10 +34,20 @@ def task_from_token(token: str) -> dict | None:
 def authorize_open(task: dict | None, tg_id: int) -> dict:
     """Validate access (spec section 7). Returns the task or raises AuthError.
 
-    The admin may open any task for testing/review.
+    The admin may open any task for testing/review. Always re-fetches the task
+    from the sheet to check the current assignment (so schedule updates take
+    effect immediately without a redeploy).
     """
     if not task:
         raise AuthError("This checklist link is no longer valid.")
+
+    # Re-fetch task from the sheet to get the current assignment (in case the
+    # admin changed it in the schedule after the checklist was created).
+    task_id = task.get("Task ID")
+    fresh_task = task_repo.get(task_id) if task_id else None
+    if fresh_task:
+        task = fresh_task
+
     if staff_repo.is_admin(tg_id):
         return task
 

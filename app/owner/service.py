@@ -1,7 +1,7 @@
 """Owner Mode business logic: create tasks, status changes, bucketing."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from app import clock
 from app.owner import constants as oc
@@ -159,6 +159,65 @@ def skip(task_id: str) -> dict | None:
     repo.log_history(task_id, "skipped")
     _generate_next(t)  # skip current occurrence but keep the recurrence going
     return repo.get_task(task_id)
+
+
+# --------------------------------------------------------------- reminders
+def _in_window(now: datetime, target: datetime, mins: int = 2) -> bool:
+    """True if `now` is at-or-just-after `target` (a small grace window so a
+    reminder still fires if a tick lands a few seconds late, but never fires for
+    a long-past time after a restart)."""
+    return target <= now < target + timedelta(minutes=mins)
+
+
+def reminders_due(now: datetime, *, daily_hhmm: str, lead_days: int,
+                  timed_lead_min: int) -> list[dict]:
+    """Pure decision function: which reminders should fire at `now`.
+
+    Returns a list of {task, kind, key}. `key` is a restart-safe idempotency
+    token embedding the task's CURRENT due date/time, so rescheduling a task
+    naturally invalidates its old-date reminders (the old key is never recomputed
+    and the new date yields fresh keys). Only Open tasks are ever considered, so
+    completed / cancelled / skipped tasks get nothing. Hiding a card does not
+    change Status, so hidden tasks still produce reminders.
+    """
+    out: list[dict] = []
+    today = now.date()
+    hhmm = now.strftime("%H:%M")
+    for t in repo.all_tasks():
+        if str(t.get("Status")) != oc.ST_OPEN:
+            continue
+        d = str(t.get("Due Date") or "")
+        if not d:
+            continue
+        try:
+            dd = clock.parse_date(d)
+        except Exception:
+            continue
+        tid = str(t.get("Task ID"))
+        tm = str(t.get("Due Time") or "")
+
+        # Timed task: advance reminder + at-due reminder.
+        if tm:
+            try:
+                target = clock.combine(dd, clock.parse_time(tm))
+            except Exception:
+                target = None
+            if target:
+                if _in_window(now, target - timedelta(minutes=timed_lead_min)):
+                    out.append({"task": t, "kind": "soon", "key": f"own_rem_soon::{tid}::{d}T{tm}"})
+                if _in_window(now, target):
+                    out.append({"task": t, "kind": "due", "key": f"own_rem_due::{tid}::{d}T{tm}"})
+
+        # Bill advance reminder — fires once at the daily anchor, lead_days early.
+        if str(t.get("Category")) == "bills" and hhmm == daily_hhmm:
+            if dd >= today and (dd - timedelta(days=lead_days)) == today:
+                out.append({"task": t, "kind": "bill", "key": f"own_rem_bill::{tid}::{d}"})
+
+        # Overdue check-in — at most once per day, at the daily anchor.
+        if hhmm == daily_hhmm and dd < today:
+            out.append({"task": t, "kind": "overdue",
+                        "key": f"own_rem_overdue::{tid}::{today.isoformat()}"})
+    return out
 
 
 # --------------------------------------------------------------- bucketing

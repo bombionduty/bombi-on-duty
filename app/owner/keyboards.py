@@ -53,10 +53,37 @@ def settings_kb(paused: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🌅 Daily time", callback_data="own:set:daily"),
          InlineKeyboardButton("🗓 Weekly", callback_data="own:set:weekly")],
+        [InlineKeyboardButton("🕒 Timed lead", callback_data="own:set:timed"),
+         InlineKeyboardButton("🟡 Upcoming days", callback_data="own:set:upcoming")],
         [InlineKeyboardButton("⏰ Bill lead days", callback_data="own:set:lead"),
          InlineKeyboardButton("🍓 Name", callback_data="own:set:name")],
         [InlineKeyboardButton("▶️ Resume reminders" if paused else "⏸ Pause reminders",
                               callback_data="own:set:pause")],
+    ])
+
+
+def reminder_kb(task_id: str) -> InlineKeyboardMarkup:
+    """Timed-task reminder card (soon / due)."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Done", callback_data=f"own:dn:{task_id}"),
+         InlineKeyboardButton("📅 Reschedule", callback_data=f"own:rs:{task_id}")],
+        [InlineKeyboardButton("🫥 Hide Card", callback_data=f"own:hide:{task_id}")],
+    ])
+
+
+def bill_kb(task_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Paid", callback_data=f"own:dn:{task_id}"),
+         InlineKeyboardButton("📅 Reschedule", callback_data=f"own:rs:{task_id}")],
+    ])
+
+
+def nudge_kb(task_id: str) -> InlineKeyboardMarkup:
+    """Overdue check-in: Done · Reschedule · Waiting."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Done", callback_data=f"own:dn:{task_id}"),
+         InlineKeyboardButton("📅 Reschedule", callback_data=f"own:rs:{task_id}")],
+        [InlineKeyboardButton("🔵 Waiting", callback_data=f"own:wt:{task_id}")],
     ])
 
 

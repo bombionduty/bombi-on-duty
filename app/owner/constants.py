@@ -57,7 +57,9 @@ SET_WEEKLY_SUMMARY = "owner_weekly_summary"           # "SUN 19:00"
 SET_DASHBOARD_MSG_ID = "owner_dashboard_message_id"
 SET_GREETING_NAME = "owner_greeting_name"
 SET_PAUSED = "owner_reminders_paused"                 # "true"/"false"
-SET_LEAD_DAYS = "owner_bill_lead_days"                # advance reminder days
+SET_LEAD_DAYS = "owner_bill_lead_days"                # bill advance reminder days
+SET_TIMED_LEAD_MIN = "owner_timed_lead_min"           # timed-task advance (minutes)
+SET_UPCOMING_DAYS = "owner_upcoming_days"             # "coming up" window (days)
 
 DEFAULTS = {
     SET_DAILY_SUMMARY: "09:00",
@@ -65,4 +67,6 @@ DEFAULTS = {
     SET_GREETING_NAME: "Lesha",
     SET_PAUSED: "false",
     SET_LEAD_DAYS: "3",
+    SET_TIMED_LEAD_MIN: "60",
+    SET_UPCOMING_DAYS: "3",
 }

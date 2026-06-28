@@ -192,6 +192,8 @@ def settings_text(s: dict) -> str:
         "⚙️ <b>Owner Settings</b>\n\n"
         f"🌅 Daily summary: <b>{esc(s.get(oc.SET_DAILY_SUMMARY))}</b>\n"
         f"🗓 Weekly summary: <b>{esc(s.get(oc.SET_WEEKLY_SUMMARY))}</b>\n"
+        f"🕒 Timed-task advance: <b>{esc(s.get(oc.SET_TIMED_LEAD_MIN))} min</b>\n"
+        f"🟡 Upcoming window: <b>{esc(s.get(oc.SET_UPCOMING_DAYS))} day(s)</b>\n"
         f"⏰ Bill advance reminder: <b>{esc(s.get(oc.SET_LEAD_DAYS))} day(s)</b>\n"
         f"🍓 Greeting name: <b>{esc(s.get(oc.SET_GREETING_NAME))}</b>\n"
         f"🔕 Reminders paused: <b>{paused}</b>\n\nTap a setting to change it."
@@ -200,5 +202,24 @@ def settings_text(s: dict) -> str:
 
 def nudge(task: dict) -> str:
     return (f"🍓 <b>Quick check-in</b>\n\n{oc.STATUS_EMOJI[oc.B_OVERDUE]} "
-            f"<b>{esc(task.get('Title'))}</b> is still pending.\n\n"
-            "Finish it today, or give it a realistic new date so it stops hanging over you.")
+            f"<b>{esc(task.get('Title'))}</b> is now overdue.\n\n"
+            "Finish it, give it a realistic new date, or park it as waiting.")
+
+
+def _humanize_lead(minutes: int) -> str:
+    if minutes % 60 == 0:
+        h = minutes // 60
+        return "IN 1 HOUR" if h == 1 else f"IN {h} HOURS"
+    return f"IN {minutes} MIN"
+
+
+def reminder_card(task: dict, kind: str, lead_min: int = 60) -> str:
+    """Timed-task reminder. kind 'soon' = advance warning, 'due' = at due time."""
+    label = _humanize_lead(lead_min) if kind == "soon" else "DUE NOW"
+    return task_card(task, header=f"{cat_emoji(task)} <b>COMING UP {label}</b>"
+                     if kind == "soon" else f"{cat_emoji(task)} <b>{label}</b>")
+
+
+def bill_due_soon(task: dict) -> str:
+    return (f"💡 <b>{esc(task.get('Title'))} — DUE SOON</b>\n\n"
+            f"Due: <b>{fmt_due(str(task.get('Due Date') or ''), str(task.get('Due Time') or ''))}</b>")
