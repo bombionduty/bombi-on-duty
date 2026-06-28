@@ -54,7 +54,16 @@ class SheetTable:
     @property
     def ws(self):
         if self._ws is None:
-            self._ws = self.book.spreadsheet.worksheet(self.tab_name)
+            try:
+                self._ws = self.book.spreadsheet.worksheet(self.tab_name)
+            except gspread.WorksheetNotFound:
+                # Auto-create a missing tab with its headers so new features work
+                # without a manual setup_sheet run.
+                log.info("Creating missing worksheet %r", self.tab_name)
+                self._ws = self.book.spreadsheet.add_worksheet(
+                    title=self.tab_name, rows=1000, cols=len(self.headers))
+                self._ws.update(values=[self.headers], range_name="A1")
+                self._ws.freeze(rows=1)
         return self._ws
 
     def _invalidate(self) -> None:

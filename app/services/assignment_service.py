@@ -53,7 +53,8 @@ def card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> str:
     rep = f"\n🔁 Repeats: {messages.esc(recurrence.describe(rule))}" if rule else ""
     return (f"{header}\n\n<b>{messages.esc(a.get('Title'))}</b>\n\n"
             f"👤 {_mention(a)}{_due_line(a)}{rep}\n\n"
-            f"<i>Tap ✅ Mark Done, or reply to this message with a photo when finished.</i>")
+            f"📸 <b>To complete:</b> reply to this message with a photo of the finished "
+            f"task — or tap ✅ Mark Done below.")
 
 
 async def _post_card(a: dict, header: str = "📌 <b>NEW TASK ASSIGNED</b>") -> None:
