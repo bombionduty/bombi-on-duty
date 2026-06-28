@@ -336,6 +336,47 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
     return {"ok": True, "notified": True, "checklists_reposted": reposted}
 
 
+@router.get("/admin/assignments")
+async def admin_assignments(caller: Caller = Depends(current_caller)):
+    _admin(caller)
+    from app.repositories import assignment_repo
+    rows = [a for a in assignment_repo.all_rows()
+            if str(a.get("Status")) != assignment_repo.ST_CANCELLED]
+    rows.sort(key=lambda a: (str(a.get("Status")) != assignment_repo.ST_OPEN,
+                             str(a.get("Due Date") or "9999")))
+    return {"assignments": rows, "staff": staff_repo.active_staff()}
+
+
+@router.post("/admin/assignments")
+async def admin_assignments_save(payload: dict, caller: Caller = Depends(current_caller)):
+    _admin(caller)
+    from app.repositories import assignment_repo
+    from app.services import assignment_service
+    action = payload.get("action")
+
+    if action == "add":
+        staff = staff_repo.get_by_staff_id(str(payload.get("staff_id", "")))
+        if not staff:
+            raise HTTPException(400, "Pick a staff member.")
+        title = str(payload.get("title", "")).strip()
+        if not title:
+            raise HTTPException(400, "Task title is required.")
+        a = await assignment_service.create(
+            title=title, staff=staff,
+            due_date=str(payload.get("due_date", "")),
+            due_time=str(payload.get("due_time", "")),
+            recurrence_rule=str(payload.get("recurrence_rule", "")),
+            created_by=str(caller.tg_id))
+        return {"ok": True, "assignment_id": a["Assignment ID"]}
+
+    if action == "cancel":
+        assignment_repo.update(str(payload["assignment_id"]),
+                               {"Status": assignment_repo.ST_CANCELLED})
+        return {"ok": True}
+
+    raise HTTPException(400, "Unknown action.")
+
+
 @router.post("/admin/copyweek")
 async def admin_copyweek(payload: dict, caller: Caller = Depends(current_caller)):
     _admin(caller)

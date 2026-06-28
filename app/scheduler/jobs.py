@@ -70,6 +70,9 @@ async def _tick_inner() -> None:
         await ops_service.escalate_if_due(t)
         await ops_service.cutoff_if_due(t)
 
+    # 3b) Staff assignment reminders (ad-hoc tasks): due-time + every-2h nudges.
+    await _assignment_reminders(now)
+
     # 4) Daily summary (covers the PREVIOUS operating date) at configured time.
     summary_time = settings_store.get(constants.SETTING_DAILY_SUMMARY_TIME)  # "00:05"
     if _hhmm(now) == summary_time:
@@ -93,6 +96,26 @@ async def _tick_inner() -> None:
         await owner_scheduler.owner_tick()
     except Exception:
         log.exception("Owner Mode tick failed (staff scheduler unaffected)")
+
+
+async def _assignment_reminders(now) -> None:
+    """Send due-time + periodic nudges for open staff assignments. Restart-safe
+    and duplicate-safe via the marker ledger (keys embed the assignment + slot)."""
+    from app.config import get_settings
+    from app.services import assignment_service
+    from app.telegram import keyboards, notify
+
+    group_id = get_settings().staff_group_chat_id
+    for ev in assignment_service.reminders_due(now):
+        if markers.done(ev["key"]):
+            continue
+        a = ev["a"]
+        header = ("⏰ <b>DUE NOW</b>" if ev["kind"] == "due"
+                  else "🔔 <b>REMINDER — still open</b>")
+        await notify.send_message(
+            group_id, assignment_service.card(a, header=header),
+            reply_markup=keyboards.assignment_done_button(a["Assignment ID"]))
+        markers.mark(ev["key"])
 
 
 async def _maybe_weekly(now, spec: str, name: str, coro) -> None:

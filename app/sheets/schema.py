@@ -24,6 +24,7 @@ ACKNOWLEDGEMENTS = "Acknowledgements"
 OIC_REVIEWS = "OIC Reviews"
 SETTINGS = "Settings"
 AUDIT_LOG = "Audit Log"
+STAFF_ASSIGNMENTS = "Staff Assignments"
 
 # ---- Owner Mode (Bombi On Call) — completely separate from staff data ----
 ADMIN_TASKS = "AdminTasks"
@@ -111,6 +112,12 @@ HEADERS: dict[str, list[str]] = {
         "Audit ID", "Timestamp", "Actor Telegram User ID", "Actor Name",
         "Actor Role", "Action", "Entity Type", "Entity ID",
         "Original Assigned Staff ID", "Previous Value", "New Value", "Reason",
+    ],
+    STAFF_ASSIGNMENTS: [
+        "Assignment ID", "Series ID", "Title", "Assigned Staff ID",
+        "Assigned Staff Name", "Assigned Telegram User ID", "Due Date",
+        "Due Time", "Status", "Recurrence Rule", "Group Message ID",
+        "Created By", "Created At", "Completed At", "Updated At",
     ],
 
     # ---- Owner Mode tabs (separate from all staff data above) ----

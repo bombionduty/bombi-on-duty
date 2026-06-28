@@ -22,6 +22,13 @@ def open_checklist_button(task_token: str) -> InlineKeyboardMarkup:
     )
 
 
+def assignment_done_button(assignment_id: str) -> InlineKeyboardMarkup:
+    """Group button for an ad-hoc staff assignment — the assignee taps to complete."""
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("✅ Mark Done", callback_data=f"asgn:done:{assignment_id}")]]
+    )
+
+
 def admin_controls_button() -> InlineKeyboardMarkup:
     """Private-chat web_app button that opens the Admin Mini App."""
     url = get_settings().admin_miniapp_url

@@ -3,9 +3,9 @@
  * Each page calls the /api/admin/* endpoints. Auth via Telegram initData header.
  */
 const PAGES = [
-  ["today", "Today"], ["schedule", "Schedule"], ["staff", "Staff"],
-  ["checklists", "Checklists"], ["timing", "Timing"], ["evidence", "Evidence"],
-  ["recoveries", "Recoveries"], ["reviews", "OIC Reviews"],
+  ["today", "Today"], ["schedule", "Schedule"], ["assignments", "Tasks"],
+  ["staff", "Staff"], ["checklists", "Checklists"], ["timing", "Timing"],
+  ["evidence", "Evidence"], ["recoveries", "Recoveries"], ["reviews", "OIC Reviews"],
   ["announcements", "Announce"], ["reports", "Reports"],
   ["settings", "Settings"], ["test", "Test"],
 ];
@@ -74,6 +74,55 @@ const PAGE_FN = {
         <button class="secondary" onclick="notifyAssignment('${r.Date}')">📢 Notify Group</button></div>`;
     });
     h += `<button class="secondary" onclick="copyWeek()">Copy This Week → Next Week</button>`;
+    app.innerHTML = h;
+  },
+
+  /* -------------------------------------------------- ASSIGNMENTS (Tasks) */
+  async assignments(app) {
+    const data = await api(`/api/admin/assignments`);
+    const staff = data.staff;
+    const opts = staff.map(s =>
+      `<option value="${esc(s["Staff ID"])}">${esc(s["Staff Name"])}</option>`).join("");
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    let h = `<h1>Staff Tasks</h1>
+      <p class="sub">Assign ad-hoc tasks (not part of opening/closing). Staff get a
+        Mark Done button and reminders every 2 hours until done.</p>
+      <div class="card"><h2>➕ Assign a task</h2>
+        <label>Staff</label><select id="a_staff">${opts}</select>
+        <label>Task</label><input id="a_title" placeholder="e.g. Restock the Biscoff display"/>
+        <label>Due date</label><input id="a_date" type="date" value="${todayStr}"/>
+        <label>Due time (optional)</label><input id="a_time" type="time"/>
+        <label>Repeat</label>
+        <select id="a_rec">
+          <option value="">Does not repeat</option>
+          <option value="days:1">Every day</option>
+          <option value="weekly">Every week (same weekday)</option>
+          <option value="days:3">Every 3 days</option>
+          <option value="days:7">Every 7 days</option>
+        </select>
+        <button onclick="assignTask()">➕ Assign Task</button></div>`;
+
+    const open = data.assignments.filter(a => a.Status === "Open");
+    const done = data.assignments.filter(a => a.Status === "Done");
+    h += `<h2>Open (${open.length})</h2>`;
+    if (!open.length) h += `<p class="muted">No open tasks.</p>`;
+    open.forEach(a => {
+      const due = a["Due Date"] ? `${esc(a["Due Date"])}${a["Due Time"] ? " " + esc(a["Due Time"]) : ""}` : "no date";
+      const rep = a["Recurrence Rule"] ? ` · 🔁 ${esc(a["Recurrence Rule"])}` : "";
+      h += `<div class="card"><div class="row"><strong>${esc(a.Title)}</strong>
+        <span class="pill">Open</span></div>
+        <div class="muted">👤 ${esc(a["Assigned Staff Name"])} · 📅 ${due}${rep}</div>
+        <button class="ghost" onclick="cancelAssignment('${esc(a["Assignment ID"])}')">🗑 Cancel</button></div>`;
+    });
+    if (done.length) {
+      h += `<h2>Recently done (${done.length})</h2>`;
+      done.slice(0, 10).forEach(a => {
+        h += `<div class="card"><div class="row"><strong>${esc(a.Title)}</strong>
+          <span class="pill ok">Done ✅</span></div>
+          <div class="muted">👤 ${esc(a["Assigned Staff Name"])}</div></div>`;
+      });
+    }
     app.innerHTML = h;
   },
 
@@ -235,6 +284,21 @@ async function saveSched(date) {
 async function notifyAssignment(date) {
   await api(`/api/admin/notify-assignment`, { method: "POST", body: { date } });
   toast("📢 Notified staff group");
+}
+async function assignTask() {
+  const title = val("a_title");
+  if (!title) { toast("Enter a task title."); return; }
+  await api(`/api/admin/assignments`, { method: "POST", body: {
+    action: "add", staff_id: val("a_staff"), title,
+    due_date: val("a_date"), due_time: val("a_time"),
+    recurrence_rule: val("a_rec") } });
+  toast("✅ Task assigned & posted to group");
+  go("assignments");
+}
+async function cancelAssignment(id) {
+  await api(`/api/admin/assignments`, { method: "POST", body: { action: "cancel", assignment_id: id } });
+  toast("Cancelled");
+  go("assignments");
 }
 async function copyWeek() {
   const s = new Date(); const src = s.toISOString().slice(0,10);

@@ -35,7 +35,7 @@ from app.telegram import keyboards, notify
 log = logging.getLogger(__name__)
 
 # Staff callbacks use these 4 prefixes; the pattern leaves 'own:' for Owner Mode.
-STAFF_CALLBACK_PATTERN = r"^(ack|sendev|rev|oic):"
+STAFF_CALLBACK_PATTERN = r"^(ack|sendev|rev|oic|asgn):"
 
 # When an OIC taps "Mark Incomplete", we wait for their next message (the issue
 # details). Maps their Telegram user id -> the review id being flagged.
@@ -423,6 +423,14 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             "Staff Name": q.from_user.full_name, "Telegram User ID": uid}
         announcements.acknowledge(ann_id, staff)
         return await q.answer("Noted ✅")
+
+    if data.startswith("asgn:"):
+        _, action, assignment_id = data.split(":", 2)
+        if action == "done":
+            from app.services import assignment_service
+            ok, msg = await assignment_service.mark_done(assignment_id, uid)
+            return await q.answer(msg, show_alert=not ok)
+        return await q.answer()
 
     if data.startswith("sendev:"):
         if not staff_repo.is_admin(uid):
