@@ -74,6 +74,21 @@ def test_next_due_days_and_monthly():
     assert recurrence.next_due("monthly:15", date(2026, 6, 15)) == date(2026, 7, 15)
 
 
+def test_parse_monthly_of_the_month(monkeypatch):
+    from app.owner import parser
+    monkeypatch.setattr(clock, "today", lambda: date(2026, 6, 29))
+    t = parser.parse("Pay rent every 15th of the month")[0]
+    assert t["recurrence"] == "monthly:15" and t["due"] == "2026-07-15"
+    assert t["title"] == "Pay rent"  # recurrence phrase stripped from title
+
+
+def test_parse_monthly_end_of_month(monkeypatch):
+    from app.owner import parser
+    monkeypatch.setattr(clock, "today", lambda: date(2026, 6, 29))
+    t = parser.parse("Staff payroll every end of the month")[0]
+    assert t["recurrence"] == "monthly:31" and t["due"] == "2026-06-30"
+
+
 def test_describe():
     assert "Sun" in recurrence.describe("weekly:6")
     assert recurrence.describe("days:4") == "every 4 days"

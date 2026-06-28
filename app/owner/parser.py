@@ -97,6 +97,16 @@ def _split_tasks(sentence: str) -> list[str]:
     return out
 
 
+def _last_day_of_month() -> date:
+    d = clock.today()
+    last = calendar.monthrange(d.year, d.month)[1]
+    cand = date(d.year, d.month, last)
+    if cand >= d:
+        return cand
+    ny, nm = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+    return date(ny, nm, calendar.monthrange(ny, nm)[1])
+
+
 def _next_weekday(target: int, allow_today: bool = True) -> date:
     d = clock.today()
     delta = (target - d.weekday()) % 7
@@ -140,6 +150,18 @@ def _extract_when(frag: str):
         recurrence = f"weekly:{wd}"
         due = _next_weekday(wd, allow_today=True)
         strip(r"\bevery\s+\w+\b")
+    # every <N>th of the month / of each month
+    m = re.search(r"\bevery\s+(\d{1,2})(?:st|nd|rd|th)?\s+of\s+(?:the|each)\s+month\b", t, re.I)
+    if m and not recurrence:
+        n = int(m.group(1))
+        recurrence = f"monthly:{n}"
+        due = _nth_of_month(n)
+        strip(r"\bevery\s+\d{1,2}(?:st|nd|rd|th)?\s+of\s+(?:the|each)\s+month\b")
+    # every end / last day of the month
+    if not recurrence and re.search(r"\bevery\s+(?:end|last day)\s+of\s+(?:the|each)\s+month\b", t, re.I):
+        recurrence = "monthly:31"  # clamps to the last day of each month
+        due = _last_day_of_month()
+        strip(r"\bevery\s+(?:end|last day)\s+of\s+(?:the|each)\s+month\b")
     if re.search(r"\bmonthly\b|\bevery month\b", t, re.I):
         recurrence = recurrence or "monthly"
         strip(r"\bmonthly\b|\bevery month\b")
