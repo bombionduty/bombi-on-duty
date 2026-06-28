@@ -62,6 +62,14 @@ def settings_kb(paused: bool) -> InlineKeyboardMarkup:
     ])
 
 
+def summary_kb() -> InlineKeyboardMarkup:
+    """Buttons under the live morning summary — act without scrolling back."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📋 Manage Today", callback_data="own:mt:open"),
+         InlineKeyboardButton("🔄 Refresh", callback_data="own:dash:refresh")],
+    ])
+
+
 def reminder_kb(task_id: str) -> InlineKeyboardMarkup:
     """Timed-task reminder card (soon / due)."""
     return InlineKeyboardMarkup([

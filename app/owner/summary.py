@@ -10,7 +10,7 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
 from app.owner import constants as oc
-from app.owner import messages, repo, service
+from app.owner import keyboards, messages, repo, service
 from app.telegram import notify
 
 log = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ async def post() -> None:
     gid = repo.get_owner_group_id()
     if not gid:
         return
-    sent = await notify.send_message(gid, _text())
+    sent = await notify.send_message(gid, _text(), reply_markup=keyboards.summary_kb())
     if sent:
         repo.set_setting(oc.SET_TODAY_MSG_ID, str(sent.message_id))
 
@@ -42,7 +42,8 @@ async def refresh() -> None:
     try:
         await notify.bot().edit_message_text(
             chat_id=gid, message_id=int(msg_id), text=_text(),
-            parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            parse_mode=ParseMode.HTML, disable_web_page_preview=True,
+            reply_markup=keyboards.summary_kb())
     except BadRequest as e:
         if "not modified" in str(e).lower():
             return  # already current

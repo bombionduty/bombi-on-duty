@@ -37,7 +37,7 @@ def parse(text: str) -> list[dict]:
         sentence = _LEAD_IN.sub("", sentence.strip())
         if not sentence:
             continue
-        frags = [f for f in re.split(r",\s+|\s+and\s+|\s+then\s+", sentence) if f.strip()]
+        frags = [f for f in _split_tasks(sentence) if f.strip()]
         items = []
         shared_due: date | None = None
         for f in frags:
@@ -66,6 +66,34 @@ def parse(text: str) -> list[dict]:
                 "responsible": it["responsible"],
                 "recurrence": it["recurrence"],
             })
+    return out
+
+
+def _has_when_cue(text: str) -> bool:
+    """True if a fragment carries its own date/time/recurrence — used to decide
+    whether ' and ' joins two tasks or just two words (names/objects)."""
+    due, recurrence, _cleaned, past = _extract_when(text)
+    return due is not None or bool(recurrence) or past
+
+
+def _split_tasks(sentence: str) -> list[str]:
+    """Split a sentence into task fragments. Commas / 'then' always separate;
+    ' and ' only separates when the part after it has its own date/recurrence
+    (so "tell angel and allyssa to clean toppings" stays ONE task, but
+    "pay rent on the 30th and film a video tomorrow" is two)."""
+    out: list[str] = []
+    for part in re.split(r",\s+|\s+then\s+", sentence):
+        pieces = re.split(r"\s+and\s+", part)
+        if len(pieces) == 1:
+            out.append(part)
+            continue
+        merged = [pieces[0]]
+        for p in pieces[1:]:
+            if _has_when_cue(p):
+                merged.append(p)              # its own dated task
+            else:
+                merged[-1] = f"{merged[-1]} and {p}"  # 'and' just joins words
+        out.extend(merged)
     return out
 
 

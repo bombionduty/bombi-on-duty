@@ -21,7 +21,10 @@ def test_today_summary_lists_unfinished_by_section(monkeypatch):
     recurring = [{"title": "Submit weekly OR", "rule": "every Sun", "next": "Jul 5"}]
     text = messages.today_summary("Lesha", buckets, recurring)
     assert "GOOD MORNING, Lesha" in text
-    assert "Audit chocolates" in text and "Write invoices" in text and "Prep payroll" in text
+    # Concise: overdue is a count (not a list), due-today + next-up are listed.
+    assert "1 overdue" in text and "Audit chocolates" not in text
+    assert "Write invoices" in text          # due today
+    assert "Prep payroll" in text            # next upcoming day
     assert "ON REPEAT" in text and "Submit weekly OR" in text and "Jul 5" in text
     assert "2 done this week" in text
 

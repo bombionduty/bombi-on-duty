@@ -31,6 +31,15 @@ def test_explicit_per_task_dates_win(monkeypatch):
     assert by_title["Film a video"] == "2026-06-25"
 
 
+def test_and_joining_names_is_one_task(monkeypatch):
+    _fix_today(monkeypatch, date(2026, 6, 24))
+    # 'and' / '&' joining names or objects (no date on the right) -> ONE task.
+    assert len(parser.parse("tell angel and allyssa to clean toppings")) == 1
+    assert len(parser.parse("tell angel & allyssa to restock")) == 1
+    # but 'and' before a dated clause still splits into two tasks.
+    assert len(parser.parse("pay rent on the 30th and film a video tomorrow")) == 2
+
+
 def test_this_week_on_sunday_is_today(monkeypatch):
     _fix_today(monkeypatch, date(2026, 6, 28))  # Sunday
     assert parser.parse("write the OR this week")[0]["due"] == "2026-06-28"

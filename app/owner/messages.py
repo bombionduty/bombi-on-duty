@@ -149,8 +149,9 @@ def dashboard_text(buckets: dict) -> str:
 
 # ----------------------------------------------------------------- summaries
 def today_summary(greeting: str, buckets: dict, recurring: list[dict] | None = None) -> str:
-    """Live 'good morning' message — edits itself as tasks change. Lists every
-    unfinished task by priority then nearest due date, plus what's on repeat."""
+    """Live, CONCISE 'good morning' message — edits itself as tasks change.
+    Shows what's due today and on the next upcoming day (not the whole week);
+    overdue is summarised as a count (clear them via 📋 Manage Today / dashboard)."""
     o = buckets.get(oc.B_OVERDUE, [])
     d = buckets.get(oc.B_DUE_TODAY, [])
     u = buckets.get(oc.B_UPCOMING, [])
@@ -160,17 +161,36 @@ def today_summary(greeting: str, buckets: dict, recurring: list[dict] | None = N
 
     if not (o or d or u or w):
         out.append("\n🎉 You're all caught up — nothing pending. Enjoy your day!")
-    else:
-        out.append("\nHere's what's still on your plate:")
-        for bucket, items in ((oc.B_OVERDUE, o), (oc.B_DUE_TODAY, d),
-                              (oc.B_UPCOMING, u), (oc.B_WAITING, w)):
-            if items:
-                out.append(f"\n{oc.STATUS_EMOJI[bucket]} <b>{bucket}</b>")
-                out.extend(task_line(t) for t in items)
+        if recurring:
+            out.append("\n🔁 <b>ON REPEAT</b>")
+            for r in recurring[:6]:
+                nxt = f" — next {esc(r['next'])}" if r.get("next") else ""
+                out.append(f"• {esc(r['title'])} ({esc(r['rule'])}){nxt}")
+        return "\n".join(out)
+
+    if o:
+        out.append(f"\n🔴 <b>{len(o)} overdue</b> — tap 📋 Manage Today below to clear them.")
+
+    if d:
+        out.append(f"\n🟠 <b>DUE TODAY</b>")
+        out.extend(task_line(t) for t in d)
+
+    # Only the NEXT upcoming day (not the whole week).
+    if u:
+        first_due = next((str(t.get("Due Date")) for t in u if t.get("Due Date")), "")
+        nextday = [t for t in u if str(t.get("Due Date")) == first_due]
+        if nextday:
+            label = fmt_due(first_due) if first_due else "Upcoming"
+            out.append(f"\n🟡 <b>NEXT UP — {esc(label)}</b>")
+            out.extend(task_line(t) for t in nextday)
+
+    if w:
+        out.append(f"\n🔵 <b>WAITING</b>")
+        out.extend(task_line(t) for t in w)
 
     if recurring:
         out.append("\n🔁 <b>ON REPEAT</b>")
-        for r in recurring[:8]:
+        for r in recurring[:6]:
             nxt = f" — next {esc(r['next'])}" if r.get("next") else ""
             out.append(f"• {esc(r['title'])} ({esc(r['rule'])}){nxt}")
 
