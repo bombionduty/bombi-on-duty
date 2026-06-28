@@ -268,12 +268,31 @@ async def admin_schedule(start: Optional[str] = None, caller: Caller = Depends(c
 async def admin_schedule_set(payload: dict, caller: Caller = Depends(current_caller)):
     _admin(caller)
     d = clock.parse_date(payload["date"])
+
+    # Detect assignment changes (before upserting) so we can notify the group.
+    old_sched = schedule_repo.get(d) or {}
+    old_opener_id = str(old_sched.get("Opener Staff ID") or "")
+    old_closer_id = str(old_sched.get("Closer Staff ID") or "")
+    new_opener_id = str(payload.get("opener_staff_id") or "")
+    new_closer_id = str(payload.get("closer_staff_id") or "")
+
+    # Upsert the schedule.
     schedule_repo.upsert(
         d, status=payload.get("status"),
         opener_staff_id=payload.get("opener_staff_id"),
         closer_staff_id=payload.get("closer_staff_id"),
         notes=payload.get("notes"),
     )
+
+    # Notify group if opener or closer changed.
+    from app.services import task_service
+    if old_opener_id != new_opener_id:
+        await task_service.notify_assignment_change(
+            d, "Opening", old_opener_id, new_opener_id)
+    if old_closer_id != new_closer_id:
+        await task_service.notify_assignment_change(
+            d, "Closing", old_closer_id, new_closer_id)
+
     return {"ok": True}
 
 

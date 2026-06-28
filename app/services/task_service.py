@@ -206,3 +206,45 @@ async def refresh_group_card(task_id: str) -> None:
         messages.group_card(task, role_label),
         reply_markup=markup,
     )
+
+
+async def notify_assignment_change(d: date, role: str, old_staff_id: str,
+                                   new_staff_id: str) -> None:
+    """Send a group notification when an assignment changes (e.g., opener reassigned).
+
+    Also updates any existing task for that date to point to the new assignee.
+    """
+    old_staff = staff_repo.get_by_staff_id(old_staff_id) if old_staff_id else None
+    new_staff = staff_repo.get_by_staff_id(new_staff_id) if new_staff_id else None
+    if not new_staff or not as_bool(new_staff.get("Active")):
+        return  # can't assign to missing/inactive staff
+
+    # Find the checklist type for this role (e.g., "opener" -> "Opening").
+    checklist_type = None
+    for ct, resp in constants.CHECK_RESPONSIBLE.items():
+        if resp == role.lower():
+            checklist_type = ct
+            break
+    if not checklist_type:
+        return
+
+    # Update any existing task for this date+type to the new assignee.
+    task = task_repo.get_by_key(d, checklist_type)
+    if task and not task.get("Submitted At"):
+        # Reassign the existing task.
+        task_repo.update_task(str(task["Task ID"]), {
+            "Assigned Staff ID": new_staff_id,
+            "Assigned Staff Name": new_staff.get("Staff Name", ""),
+        })
+        audit.log(0, new_staff.get("Staff Name", ""), constants.ROLE_ADMIN,
+                  "reassigned", "Task", task["Task ID"],
+                  detail=f"(from {old_staff.get('Staff Name', 'unassigned') if old_staff else 'unassigned'})")
+
+    # Notify the group about the change.
+    old_name = old_staff.get("Staff Name", "Unassigned") if old_staff else "Unassigned"
+    new_name = new_staff.get("Staff Name", "")
+    msg = (f"📝 <b>Shift reassignment</b>\n\n"
+           f"<b>{checklist_type}</b> checklist for <b>{messages.esc(d.strftime('%b %d, %A'))}</b>\n\n"
+           f"Was assigned to: <b>{messages.esc(old_name)}</b>\n"
+           f"Now assigned to: <b>{messages.esc(new_name)}</b>")
+    await notify.send_message(get_settings().staff_group_chat_id, msg)
