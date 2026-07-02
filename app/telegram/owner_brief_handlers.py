@@ -56,7 +56,9 @@ async def cmd_testownerbrief(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
         return await update.effective_message.reply_text(
             "Not configured — set ZITE_OWNER_BRIEF_URL and ZITE_OWNER_BRIEF_TOKEN first.")
     await update.effective_message.reply_text("🧪 Triggering the Daily Owner Brief now…")
-    res = await owner_brief.run_brief(send_email=True, alert_on_failure=True)
+    # No separate failure alert here — this handler already reports the outcome,
+    # so a manual test won't double-message you.
+    res = await owner_brief.run_brief(send_email=True, alert_on_failure=False)
     if res.ok:
         note = f"✅ Done (status {res.status}, {res.duration_s:.1f}s). Email sent to: " \
                f"{', '.join(s.owner_email_list) or '—'}"
@@ -68,6 +70,19 @@ async def cmd_testownerbrief(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> 
             f"⚠️ Failed after retry: {res.error}")
 
 
+async def cmd_chatid(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reply with the current chat's numeric ID — run it inside the group you want
+    the inventory brief delivered to, then set OWNER_TELEGRAM_CHAT_ID to that value."""
+    if not _is_admin(update):
+        return
+    chat = update.effective_chat
+    await update.effective_message.reply_text(
+        f"🆔 This chat's ID is: <code>{chat.id}</code>\n\n"
+        "Set <b>OWNER_TELEGRAM_CHAT_ID</b> to this value in the bot's .env to send "
+        "the Daily Owner Brief (and its alerts) here.", parse_mode="HTML")
+
+
 def register(application) -> None:
     application.add_handler(CommandHandler("ownerbrief", cmd_ownerbrief))
     application.add_handler(CommandHandler("testownerbrief", cmd_testownerbrief))
+    application.add_handler(CommandHandler("chatid", cmd_chatid))
