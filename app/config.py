@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     environment_name: str = Field("development", alias="ENVIRONMENT_NAME")
     port: int = Field(8000, alias="PORT")
 
+    # ---- Zite Daily Owner Brief (inventory) — optional integration ----
+    # The bot triggers this external report each morning. All optional: if the
+    # URL/token are unset the feature is simply inactive (nothing else breaks).
+    zite_owner_brief_url: Optional[str] = Field(None, alias="ZITE_OWNER_BRIEF_URL")
+    zite_owner_brief_token: Optional[str] = Field(None, alias="ZITE_OWNER_BRIEF_TOKEN")
+    owner_emails: str = Field("", alias="OWNER_EMAILS")  # comma-separated recipients
+    owner_telegram_chat_id: Optional[int] = Field(None, alias="OWNER_TELEGRAM_CHAT_ID")
+    owner_brief_time: str = Field("09:00", alias="OWNER_BRIEF_TIME")  # HH:MM Manila
+
     # ---- Derived helpers ----
     @property
     def base_url(self) -> str:
@@ -78,6 +87,14 @@ class Settings(BaseSettings):
     @property
     def admin_miniapp_url(self) -> str:
         return f"{self.base_url}/static/admin/index.html"
+
+    @property
+    def owner_email_list(self) -> list[str]:
+        return [e.strip() for e in (self.owner_emails or "").split(",") if e.strip()]
+
+    @property
+    def owner_brief_configured(self) -> bool:
+        return bool(self.zite_owner_brief_url and self.zite_owner_brief_token)
 
     def miniapp_deeplink(self, startapp_token: str) -> str:
         """Direct Mini App deep link used inside the Staff group."""

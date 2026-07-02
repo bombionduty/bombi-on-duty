@@ -89,6 +89,9 @@ async def _tick_inner() -> None:
             await summary_service.send_good_morning(yesterday)
             markers.mark(key)
 
+    # 4c) Daily Owner Brief (Zite inventory) — trigger the external report.
+    await _owner_brief(now)
+
     # 5) Weekly schedule reminder (e.g. "SUN 18:00").
     await _maybe_weekly(now, settings_store.get(constants.SETTING_WEEKLY_SCHEDULE_REMINDER),
                         "weekly_sched", schedule_service.send_weekly_schedule_reminder)
@@ -133,6 +136,24 @@ async def _assignment_reminders(now) -> None:
             from app.repositories import reminder_repo
             reminder_repo.log_reminder(a["Assignment ID"], group_id, sent.message_id)
         markers.mark(ev["key"])
+
+
+async def _owner_brief(now) -> None:
+    """Trigger the Zite Daily Owner Brief once/day (default 09:00 Manila).
+    Isolated + marker-guarded so it never affects the Berry Bomb steps."""
+    from app.config import get_settings
+    s = get_settings()
+    if not s.owner_brief_configured or _hhmm(now) != s.owner_brief_time:
+        return
+    key = f"owner_brief::{now.date().isoformat()}"
+    if markers.done(key):
+        return
+    try:
+        from app.services import owner_brief
+        await owner_brief.run_brief(send_email=True, deliver_telegram=False)
+    except Exception:
+        log.exception("Owner Brief tick failed (other steps unaffected)")
+    markers.mark(key)  # mark regardless so we don't re-fire every minute
 
 
 async def _maybe_weekly(now, spec: str, name: str, coro) -> None:

@@ -48,6 +48,8 @@ def build_application() -> Application:
         .build()
     )
     handlers.register(application)
+    from app.telegram import owner_brief_handlers
+    owner_brief_handlers.register(application)  # isolated inventory-brief commands
     application.add_error_handler(_on_error)
     notify.set_application(application)
     return application
