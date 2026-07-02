@@ -139,18 +139,29 @@ async def _assignment_reminders(now) -> None:
 
 
 async def _owner_brief(now) -> None:
-    """Trigger the Zite Daily Owner Brief once/day (default 09:00 Manila).
+    """Daily Owner Brief trigger (default 09:00 Manila). Mode-driven:
+      auto   -> call the Zite endpoint over HTTP (needs owner_brief_configured)
+      manual -> post a reminder to tap Zite's in-app button (interim workaround)
+      off    -> do nothing
     Isolated + marker-guarded so it never affects the Berry Bomb steps."""
     from app.config import get_settings
     s = get_settings()
-    if not s.owner_brief_configured or _hhmm(now) != s.owner_brief_time:
+    if _hhmm(now) != s.owner_brief_time:
         return
+    mode = (s.owner_brief_mode or "auto").lower()
+    if mode == "off":
+        return
+    if mode == "auto" and not s.owner_brief_configured:
+        return  # not set up yet
     key = f"owner_brief::{now.date().isoformat()}"
     if markers.done(key):
         return
     try:
         from app.services import owner_brief
-        await owner_brief.run_brief(send_email=True, deliver_telegram=False)
+        if mode == "manual":
+            await owner_brief.post_reminder()
+        else:
+            await owner_brief.run_brief(send_email=True, deliver_telegram=False)
     except Exception:
         log.exception("Owner Brief tick failed (other steps unaffected)")
     markers.mark(key)  # mark regardless so we don't re-fire every minute

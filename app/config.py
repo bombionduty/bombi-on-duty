@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     owner_emails: str = Field("", alias="OWNER_EMAILS")  # comma-separated recipients
     owner_telegram_chat_id: Optional[int] = Field(None, alias="OWNER_TELEGRAM_CHAT_ID")
     owner_brief_time: str = Field("09:00", alias="OWNER_BRIEF_TIME")  # HH:MM Manila
+    # "auto"   -> bot calls the Zite endpoint over HTTP (use once Zite fixes their
+    #             external-POST platform bug).
+    # "manual" -> bot posts a daily reminder to tap Zite's in-app button instead
+    #             (interim while external HTTP is broken). "off" -> do nothing.
+    owner_brief_mode: str = Field("auto", alias="OWNER_BRIEF_MODE")
 
     # ---- Derived helpers ----
     @property

@@ -115,6 +115,19 @@ async def _deliver(text: str) -> None:
         await notify.send_message(chat, text)
 
 
+async def post_reminder() -> None:
+    """Interim (while Zite's external API is down): remind the owner to tap the
+    in-app 'Send Daily Owner Brief' button, in the inventory chat."""
+    chat = _alert_chat_id()
+    if not chat:
+        return
+    await notify.send_message(
+        chat, "📦 <b>Daily Owner Brief</b>\n\nTap <b>“Send Test Daily Owner Brief”</b> "
+        "in the Zite app to send today's inventory report.\n\n"
+        "<i>Automatic sending is paused until Zite fixes external API calls — "
+        "I'll switch it back on by myself once it works.</i>")
+
+
 async def _alert_failure(reason: str) -> None:
     chat = _alert_chat_id()
     if not chat:
