@@ -24,6 +24,7 @@ from app.logging_setup import setup_logging
 from app.scheduler import runner as scheduler_runner
 from app.telegram import bot as tg_bot
 from app.web.routes_evidence import router as evidence_router
+from app.web.routes_inventory import router as inventory_router
 from app.web.routes_miniapp import router as miniapp_router
 
 setup_logging()
@@ -51,6 +52,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Berry Bomb Daily Ops", lifespan=lifespan)
 app.include_router(miniapp_router)
 app.include_router(evidence_router)
+app.include_router(inventory_router)
 
 
 @app.get("/healthz")

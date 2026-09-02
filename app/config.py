@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     # "manual" -> bot posts a daily reminder to tap Zite's in-app button instead
     #             (interim while external HTTP is broken). "off" -> do nothing.
     owner_brief_mode: str = Field("auto", alias="OWNER_BRIEF_MODE")
+    # Shared secret Zite sends when it pushes the inventory brief text to the bot's
+    # /api/inventory-brief endpoint (the bot then posts it to OWNER_TELEGRAM_CHAT_ID).
+    inventory_brief_token: Optional[str] = Field(None, alias="INVENTORY_BRIEF_TOKEN")
 
     # ---- Derived helpers ----
     @property
