@@ -232,6 +232,25 @@ def _admin(caller: Caller) -> Caller:
     return caller
 
 
+def _schedule_editor(caller: Caller) -> Caller:
+    """Admin OR the Store OIC — so the OIC can reassign the schedule when the
+    admin is unavailable. Everything else stays admin-only."""
+    if not (caller.is_admin or caller.is_oic):
+        raise HTTPException(403, "Only the admin or Store OIC can edit the schedule.")
+    return caller
+
+
+@router.get("/me")
+async def whoami(caller: Caller = Depends(current_caller)):
+    """Lets the Admin Mini App adapt its tabs to the caller's role."""
+    return {
+        "role": caller.role,
+        "is_admin": caller.is_admin,
+        "is_oic": caller.is_oic,
+        "name": (caller.staff or {}).get("Staff Name", ""),
+    }
+
+
 @router.get("/admin/today")
 async def admin_today(date: Optional[str] = None, caller: Caller = Depends(current_caller)):
     _admin(caller)
@@ -261,14 +280,14 @@ async def admin_today(date: Optional[str] = None, caller: Caller = Depends(curre
 
 @router.get("/admin/schedule")
 async def admin_schedule(start: Optional[str] = None, caller: Caller = Depends(current_caller)):
-    _admin(caller)
+    _schedule_editor(caller)  # admin or Store OIC
     s = clock.parse_date(start) if start else clock.today()
     return {"start": s.isoformat(), "rows": schedule_repo.week_rows(s, 7)}
 
 
 @router.post("/admin/schedule")
 async def admin_schedule_set(payload: dict, caller: Caller = Depends(current_caller)):
-    _admin(caller)
+    _schedule_editor(caller)  # admin or Store OIC
     d = clock.parse_date(payload["date"])
 
     # Detect assignment changes (before upserting) so we can notify the group.
@@ -305,7 +324,7 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
     Useful if the admin changes the schedule and wants to notify staff
     immediately without waiting for the next automated message.
     """
-    _admin(caller)
+    _schedule_editor(caller)  # admin or Store OIC
     d = clock.parse_date(payload["date"])
     sched = schedule_repo.get(d)
     if not sched:
@@ -390,7 +409,7 @@ async def admin_copyweek(payload: dict, caller: Caller = Depends(current_caller)
 
 @router.get("/admin/staff")
 async def admin_staff(caller: Caller = Depends(current_caller)):
-    _admin(caller)
+    _schedule_editor(caller)  # OIC needs the staff names for the schedule dropdowns
     return {"staff": staff_repo.all_staff(),
             "duplicates": staff_repo.duplicate_active_telegram_ids()}
 

@@ -37,6 +37,15 @@ def admin_controls_button() -> InlineKeyboardMarkup:
     )
 
 
+def schedule_editor_button() -> InlineKeyboardMarkup:
+    """Private-chat web_app button that opens the Admin Mini App straight to the
+    Schedule tab (used by the OIC to reassign staff)."""
+    url = get_settings().admin_miniapp_url + "?page=schedule"
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("📅 Edit Schedule", web_app=WebAppInfo(url=url))]]
+    )
+
+
 def oic_followup_buttons(task_id: str, allow_recovery: bool) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton("👁 View Task", callback_data=f"oic:view:{task_id}")],

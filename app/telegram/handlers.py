@@ -241,6 +241,23 @@ async def cmd_schedule(update, ctx):
     await update.message.reply_html("\n".join(lines))
 
 
+async def cmd_reassign(update, ctx):
+    """Open the Schedule editor. Available to the admin AND the Store OIC, so the
+    OIC can reassign staff when the admin is unavailable."""
+    uid = _uid(update)
+    role = staff_repo.role_of(uid)
+    if not (staff_repo.is_admin(uid) or role == constants.ROLE_OIC):
+        return await update.effective_message.reply_text(
+            "Only the admin or the Store OIC can edit the schedule.")
+    if update.effective_chat.type != "private":
+        return await update.effective_message.reply_text(
+            "📅 Please DM me <b>/reassign</b> to open the schedule editor "
+            "(mini-app buttons only work in a private chat).", parse_mode="HTML")
+    await update.effective_message.reply_text(
+        "📅 Tap below to open the schedule and reassign the opener/closer. "
+        "You can change only the schedule.", reply_markup=keyboards.schedule_editor_button())
+
+
 async def cmd_copyweek(update, ctx):
     if not _is_admin(update):
         return await _deny(update)
@@ -606,6 +623,7 @@ def register(application) -> None:
     h(CommandHandler(["note", "issue"], cmd_note))
     h(CommandHandler(["mytask", "checklist_open"], cmd_mytask))
     h(CommandHandler("schedule", cmd_schedule))
+    h(CommandHandler(["reassign", "editschedule"], cmd_reassign))
     h(CommandHandler("opener", cmd_opener))
     h(CommandHandler("closer", cmd_closer))
     h(CommandHandler("closed", cmd_closed))

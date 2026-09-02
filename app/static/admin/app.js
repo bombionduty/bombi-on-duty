@@ -10,14 +10,27 @@ const PAGES = [
   ["settings", "Settings"], ["test", "Test"],
 ];
 
-document.addEventListener("DOMContentLoaded", () => {
+// The Store OIC gets a restricted view: Schedule only (to reassign staff when
+// the admin is unavailable). The admin sees everything.
+let ME = { is_admin: true, is_oic: false, role: "Admin" };
+
+document.addEventListener("DOMContentLoaded", init);
+
+async function init() {
   tgInit();
+  try { ME = await api("/api/me"); } catch (e) { /* fall back to full view */ }
   renderTabs();
-  go(qs("page") || "today");
-});
+  const def = ME.is_admin ? (qs("page") || "today") : "schedule";
+  go(def);
+}
+
+function visiblePages() {
+  if (ME.is_admin) return PAGES;
+  return PAGES.filter(([id]) => id === "schedule");  // OIC: schedule only
+}
 
 function renderTabs() {
-  document.getElementById("tabbar").innerHTML = PAGES.map(
+  document.getElementById("tabbar").innerHTML = visiblePages().map(
     ([id, label]) => `<button data-tab="${id}">${label}</button>`).join("");
   document.querySelectorAll("[data-tab]").forEach(b =>
     b.onclick = () => go(b.getAttribute("data-tab")));
@@ -29,6 +42,8 @@ function setActive(page) {
 }
 
 async function go(page) {
+  // Non-admins are limited to the pages their role can see.
+  if (!visiblePages().some(([id]) => id === page)) page = "schedule";
   setActive(page);
   const app = document.getElementById("app");
   app.innerHTML = `<div class="spinner">Loading…</div>`;
