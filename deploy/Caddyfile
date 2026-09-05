@@ -1,6 +1,18 @@
-# Caddy auto-HTTPS. {$DOMAIN} comes from the DOMAIN env var (your nip.io host).
-# Caddy automatically obtains + renews a free Let's Encrypt certificate.
+# Caddy auto-HTTPS for BOTH apps co-hosted on this droplet. Caddy obtains +
+# renews free Let's Encrypt certs for each host.
+#
+#   {$DOMAIN}       -> the Bombi On Duty bot   (e.g. 159-65-136-203.nip.io)
+#   {$PACK_DOMAIN}  -> the packaging app        (e.g. pack-159-65-136-203.nip.io)
+#
+# Each app has a UNIQUE upstream alias so Caddy can never route one app's
+# traffic to the other (the earlier "app" collision). Both values are set by
+# scripts/deploy_droplet.sh from the droplet's IP.
 {$DOMAIN} {
 	encode gzip
 	reverse_proxy bombionduty-app:8000
+}
+
+{$PACK_DOMAIN} {
+	encode gzip
+	reverse_proxy packaging-app:8000
 }

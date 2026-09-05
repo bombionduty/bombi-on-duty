@@ -18,7 +18,9 @@ echo "==> Detecting public IP..."
 IP="$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')"
 if [[ -z "$IP" ]]; then echo "Could not detect IP"; exit 1; fi
 DOMAIN="${IP//./-}.nip.io"
-echo "    IP=$IP   DOMAIN=$DOMAIN"
+# Second host on the same droplet: the co-hosted packaging app.
+PACK_DOMAIN="pack-${IP//./-}.nip.io"
+echo "    IP=$IP   DOMAIN=$DOMAIN   PACK_DOMAIN=$PACK_DOMAIN"
 
 if [[ ! -f .env ]]; then
   echo "ERROR: .env not found. Create it first (Claude gives you the contents)."
@@ -42,12 +44,13 @@ set_env TELEGRAM_MODE "webhook"
 set_env TEST_MODE "false"
 set_env ENVIRONMENT_NAME "production"
 set_env PORT "8000"
-export DOMAIN
+set_env PACK_DOMAIN "${PACK_DOMAIN}"
+export DOMAIN PACK_DOMAIN
 
-# Also write DOMAIN to deploy/.env so plain `docker compose -f deploy/...`
-# commands (e.g. after a git pull) pick up the domain automatically and don't
-# fall back to a blank string. Compose auto-reads the .env next to the file.
-echo "DOMAIN=${DOMAIN}" > deploy/.env
+# Also write both hosts to deploy/.env so plain `docker compose -f deploy/...`
+# commands (e.g. after a git pull) pick them up automatically. Compose
+# auto-reads the .env next to the compose file.
+{ echo "DOMAIN=${DOMAIN}"; echo "PACK_DOMAIN=${PACK_DOMAIN}"; } > deploy/.env
 
 # --- install Docker if missing ---
 if ! command -v docker >/dev/null 2>&1; then
@@ -67,7 +70,7 @@ echo "==> Building and starting containers..."
 # (the Zite/packaging inventory app); --remove-orphans could delete it if it
 # shares this Compose project. The bot's unique network alias (see
 # deploy/docker-compose.yml) already prevents the routing collision instead.
-DOMAIN="$DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build
+DOMAIN="$DOMAIN" PACK_DOMAIN="$PACK_DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build
 
 echo ""
 echo "============================================================"
