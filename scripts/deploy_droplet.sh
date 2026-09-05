@@ -63,7 +63,11 @@ if [[ ! -f /swapfile ]] && [[ "$(free -m | awk '/^Mem:/{print $2}')" -lt 1200 ]]
 fi
 
 echo "==> Building and starting containers..."
-DOMAIN="$DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
+# NOTE: no --remove-orphans here. This droplet also hosts a separate app
+# (the Zite/packaging inventory app); --remove-orphans could delete it if it
+# shares this Compose project. The bot's unique network alias (see
+# deploy/docker-compose.yml) already prevents the routing collision instead.
+DOMAIN="$DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build
 
 echo ""
 echo "============================================================"
