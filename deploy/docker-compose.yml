@@ -15,6 +15,13 @@ services:
     volumes:
       # Persist uploaded evidence (photos/screenshots) across redeploys.
       - app_data:/app/data
+    # Unique network alias so Caddy routes ONLY to this container. Another app on
+    # the same Docker network that also uses the service name "app" (e.g. the
+    # Zite inventory app) would otherwise collide and cause round-robin 404s.
+    networks:
+      default:
+        aliases:
+          - bombionduty-app
 
   caddy:
     image: caddy:2
