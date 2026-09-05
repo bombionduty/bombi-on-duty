@@ -102,6 +102,19 @@ async def _tick_inner() -> None:
             evidence_service.purge_old(days)
             markers.mark(key)
 
+    # 4e) Daily low-disk warning (07:00) — alert the admin BEFORE the droplet
+    #     fills up (a full disk is what broke deploys/uploads before).
+    if _hhmm(now) == "07:00":
+        key = f"diskcheck::{today.isoformat()}"
+        if not markers.done(key):
+            from app.services import system_service
+            r = system_service.disk_report()
+            if r["percent"] >= system_service.WARN_PERCENT:
+                from app.config import get_settings
+                await notify.send_message(get_settings().admin_telegram_user_id,
+                                          system_service.format_report(r))
+            markers.mark(key)
+
     # 5) Weekly schedule reminder (e.g. "SUN 18:00").
     await _maybe_weekly(now, settings_store.get(constants.SETTING_WEEKLY_SCHEDULE_REMINDER),
                         "weekly_sched", schedule_service.send_weekly_schedule_reminder)

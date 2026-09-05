@@ -241,6 +241,14 @@ async def cmd_schedule(update, ctx):
     await update.message.reply_html("\n".join(lines))
 
 
+async def cmd_diskspace(update, ctx):
+    if not _is_admin(update):
+        return await _deny(update)
+    from app.services import system_service
+    await update.effective_message.reply_html(
+        system_service.format_report(system_service.disk_report()))
+
+
 async def cmd_reassign(update, ctx):
     """Open the Schedule editor. Available to the admin AND the Store OIC, so the
     OIC can reassign staff when the admin is unavailable."""
@@ -624,6 +632,7 @@ def register(application) -> None:
     h(CommandHandler(["mytask", "checklist_open"], cmd_mytask))
     h(CommandHandler("schedule", cmd_schedule))
     h(CommandHandler(["reassign", "editschedule"], cmd_reassign))
+    h(CommandHandler(["diskspace", "storage", "disk"], cmd_diskspace))
     h(CommandHandler("opener", cmd_opener))
     h(CommandHandler("closer", cmd_closer))
     h(CommandHandler("closed", cmd_closed))
