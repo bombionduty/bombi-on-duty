@@ -92,6 +92,16 @@ async def _tick_inner() -> None:
     # 4c) Daily Owner Brief (Zite inventory) — trigger the external report.
     await _owner_brief(now)
 
+    # 4d) Nightly evidence cleanup — delete photo files older than the retention
+    #     window (default 50 days) to keep the droplet's disk from filling up.
+    if _hhmm(now) == "03:30":
+        key = f"evidence_purge::{today.isoformat()}"
+        if not markers.done(key):
+            from app.services import evidence_service
+            days = settings_store.get_int(constants.SETTING_EVIDENCE_RETENTION_DAYS)
+            evidence_service.purge_old(days)
+            markers.mark(key)
+
     # 5) Weekly schedule reminder (e.g. "SUN 18:00").
     await _maybe_weekly(now, settings_store.get(constants.SETTING_WEEKLY_SCHEDULE_REMINDER),
                         "weekly_sched", schedule_service.send_weekly_schedule_reminder)

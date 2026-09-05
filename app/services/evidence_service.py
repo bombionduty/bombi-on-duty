@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import imagehash
 import piexif
@@ -224,3 +224,31 @@ def process_and_store(
     })
     row["_duplicate_of"] = duplicate  # convenience for caller alerts
     return row
+
+
+# ----------------------------------------------------------- retention purge
+def purge_old(days: int) -> int:
+    """Free disk: delete evidence IMAGE FILES older than `days`. The Evidence row
+    (audit trail) is kept — only the file is removed and its Storage Path cleared
+    so it isn't reprocessed. Safe/idempotent: already-purged rows are skipped and
+    a missing file is a no-op. Returns the number of files deleted."""
+    from app.services import storage_service
+
+    cutoff = clock.now() - timedelta(days=max(1, days))
+    removed = 0
+    for e in evidence_repo.all_rows():
+        path = str(e.get("Storage Path") or "")
+        if not path:
+            continue  # already purged, or nothing stored locally
+        uploaded = clock.from_iso(e.get("Uploaded At"))
+        if not uploaded or uploaded >= cutoff:
+            continue
+        try:
+            storage_service.delete(path)
+            evidence_repo.update(str(e.get("Evidence ID")), {"Storage Path": ""})
+            removed += 1
+        except Exception:
+            log.exception("purge_old: could not delete %s", path)
+    if removed:
+        log.info("Evidence purge: deleted %d file(s) older than %d days", removed, days)
+    return removed

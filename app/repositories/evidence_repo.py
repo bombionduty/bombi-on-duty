@@ -46,6 +46,10 @@ def recent(limit_days: int = 14) -> list[dict]:
     return rows[-250:]
 
 
+def all_rows() -> list[dict]:
+    return _t().all()
+
+
 def update(evidence_id: str, changes: dict) -> bool:
     return _t().update("Evidence ID", evidence_id, changes)
 
