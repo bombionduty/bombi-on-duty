@@ -63,7 +63,7 @@ if [[ ! -f /swapfile ]] && [[ "$(free -m | awk '/^Mem:/{print $2}')" -lt 1200 ]]
 fi
 
 echo "==> Building and starting containers..."
-DOMAIN="$DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build
+DOMAIN="$DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build --remove-orphans
 
 echo ""
 echo "============================================================"
