@@ -72,6 +72,14 @@ echo "==> Building and starting containers..."
 # deploy/docker-compose.yml) already prevents the routing collision instead.
 DOMAIN="$DOMAIN" PACK_DOMAIN="$PACK_DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build
 
+# --- self-healing watchdog: restart the bot if it ever stops responding ---
+echo "==> Installing health watchdog (cron, every 3 min)..."
+chmod +x scripts/watchdog.sh 2>/dev/null || true
+WD_LINE="*/3 * * * * /opt/bombi-on-duty/scripts/watchdog.sh"
+# Replace any existing watchdog line, keep the rest of the crontab intact.
+( crontab -l 2>/dev/null | grep -v 'scripts/watchdog.sh'; echo "$WD_LINE" ) | crontab -
+echo "    watchdog installed."
+
 echo ""
 echo "============================================================"
 echo " Bombi On Duty is starting."

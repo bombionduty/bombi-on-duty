@@ -179,6 +179,14 @@ class Workbook:
     def __init__(self):
         settings = get_settings()
         self.gc = gspread.authorize(build_credentials())
+        # Bound every Google Sheets call so a slow/dropped connection can NEVER
+        # hang forever and freeze the whole app (connect 10s, read 30s). A timed
+        # -out call raises, which the scheduler tick + request handlers already
+        # catch — the app keeps serving instead of locking up on a Google hiccup.
+        try:
+            self.gc.set_timeout((10, 30))
+        except Exception:
+            pass
         self.spreadsheet = self.gc.open_by_key(settings.google_sheet_id)
         self._tables: dict[str, SheetTable] = {}
 
