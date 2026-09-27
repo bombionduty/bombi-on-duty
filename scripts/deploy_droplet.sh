@@ -76,9 +76,16 @@ DOMAIN="$DOMAIN" PACK_DOMAIN="$PACK_DOMAIN" docker compose -f deploy/docker-comp
 echo "==> Installing health watchdog (cron, every 3 min)..."
 chmod +x scripts/watchdog.sh 2>/dev/null || true
 WD_LINE="*/3 * * * * /opt/bombi-on-duty/scripts/watchdog.sh"
-# Replace any existing watchdog line, keep the rest of the crontab intact.
-( crontab -l 2>/dev/null | grep -v 'scripts/watchdog.sh'; echo "$WD_LINE" ) | crontab -
-echo "    watchdog installed."
+
+# --- weekly Docker cleanup: reclaim build cache + dangling images so the disk
+#     doesn't slowly fill (Sun 04:00). Safe: never removes running apps, their
+#     images, or any volume (evidence photos live in a volume). ---
+PRUNE_LINE="0 4 * * 0 docker system prune -af >> /var/log/bombi-prune.log 2>&1; docker builder prune -af >> /var/log/bombi-prune.log 2>&1"
+
+# Install/refresh both cron lines, keeping the rest of the crontab intact.
+( crontab -l 2>/dev/null | grep -v -e 'scripts/watchdog.sh' -e 'bombi-prune.log'; \
+  echo "$WD_LINE"; echo "$PRUNE_LINE" ) | crontab -
+echo "    watchdog + weekly docker-prune installed."
 
 echo ""
 echo "============================================================"
