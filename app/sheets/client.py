@@ -56,6 +56,7 @@ class SheetTable:
         if self._ws is None:
             try:
                 self._ws = self.book.spreadsheet.worksheet(self.tab_name)
+                self._ensure_headers()  # add any columns a newer schema introduced
             except gspread.WorksheetNotFound:
                 # Auto-create a missing tab with its headers so new features work
                 # without a manual setup_sheet run.
@@ -65,6 +66,19 @@ class SheetTable:
                 self._ws.update(values=[self.headers], range_name="A1")
                 self._ws.freeze(rows=1)
         return self._ws
+
+    def _ensure_headers(self) -> None:
+        """Append any schema columns the sheet doesn't have yet (at the end,
+        never reordering/removing), so adding a column needs no setup_sheet run."""
+        try:
+            current = self._ws.row_values(1)
+        except Exception:
+            return
+        missing = [h for h in self.headers if h not in current]
+        if missing:
+            log.info("Adding new column(s) to %r: %s", self.tab_name, missing)
+            self._ws.update(values=[current + missing], range_name="A1")
+            self._invalidate()
 
     def _invalidate(self) -> None:
         self._cache = None

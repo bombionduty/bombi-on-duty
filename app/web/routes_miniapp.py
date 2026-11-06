@@ -21,6 +21,7 @@ from app.repositories import (
     staff_repo,
     task_repo,
     timing_repo,
+    weekly_repo,
 )
 from app.repositories.base import as_bool
 from app.repositories.misc_repo import recovery, reviews, settings_store
@@ -290,18 +291,22 @@ async def admin_schedule_set(payload: dict, caller: Caller = Depends(current_cal
     _schedule_editor(caller)  # admin or Store OIC
     d = clock.parse_date(payload["date"])
 
-    # Detect assignment changes (before upserting) so we can notify the group.
-    old_sched = schedule_repo.get(d) or {}
-    old_opener_id = str(old_sched.get("Opener Staff ID") or "")
-    old_closer_id = str(old_sched.get("Closer Staff ID") or "")
+    # Detect assignment changes against the EFFECTIVE assignment (explicit
+    # override, else official template) so we only notify on a real change.
+    old = schedule_repo.resolve(d)
+    old_opener_id = str(old.get("opener_id") or "")
+    old_closer_id = str(old.get("closer_id") or "")
+    old_peak_id = str(old.get("peak_id") or "")
     new_opener_id = str(payload.get("opener_staff_id") or "")
     new_closer_id = str(payload.get("closer_staff_id") or "")
+    new_peak_id = str(payload.get("closing_peak_staff_id") or "")
 
-    # Upsert the schedule.
+    # Upsert the schedule (this date only — never touches the official template).
     schedule_repo.upsert(
         d, status=payload.get("status"),
         opener_staff_id=payload.get("opener_staff_id"),
         closer_staff_id=payload.get("closer_staff_id"),
+        closing_peak_staff_id=payload.get("closing_peak_staff_id"),
         notes=payload.get("notes"),
     )
 
@@ -313,7 +318,49 @@ async def admin_schedule_set(payload: dict, caller: Caller = Depends(current_cal
     if old_closer_id != new_closer_id:
         await task_service.notify_assignment_change(
             d, "Closing", old_closer_id, new_closer_id)
+    # Peak support change alone: repost the closing card so its peak line + who
+    # can complete it update (no separate "reassignment" banner needed).
+    elif old_peak_id != new_peak_id:
+        await task_service.repost_checklist(d, constants.CHECK_CLOSING)
 
+    return {"ok": True}
+
+
+@router.get("/admin/official-schedule")
+async def admin_official_schedule(caller: Caller = Depends(current_caller)):
+    """The permanent weekday template (MON..SUN) that's followed automatically
+    every week unless a specific date is overridden."""
+    _schedule_editor(caller)  # admin or Store OIC
+    official = schedule_repo.get_official()
+    rows = []
+    for wd in constants.WEEKDAYS:
+        r = official.get(wd, {})
+        rows.append({
+            "weekday": wd,
+            "opener_staff_id": str(r.get("Opener Staff ID") or ""),
+            "opener_name": str(r.get("Opener Name") or ""),
+            "closer_staff_id": str(r.get("Closer Staff ID") or ""),
+            "closer_name": str(r.get("Closer Name") or ""),
+            "closing_peak_staff_id": str(r.get("Closing Peak Staff ID") or ""),
+            "closing_peak_name": str(r.get("Closing Peak Name") or ""),
+        })
+    return {"rows": rows}
+
+
+@router.post("/admin/official-schedule")
+async def admin_official_schedule_set(payload: dict, caller: Caller = Depends(current_caller)):
+    """Save one weekday of the official template. Does NOT touch any dated row —
+    future weeks follow it automatically; existing per-date overrides stand."""
+    _schedule_editor(caller)  # admin or Store OIC
+    weekday = str(payload.get("weekday") or "").upper()
+    if weekday not in constants.WEEKDAYS:
+        raise HTTPException(400, "Invalid weekday.")
+    schedule_repo.set_official(
+        weekday,
+        opener_staff_id=str(payload.get("opener_staff_id") or ""),
+        closer_staff_id=str(payload.get("closer_staff_id") or ""),
+        closing_peak_staff_id=str(payload.get("closing_peak_staff_id") or ""),
+    )
     return {"ok": True}
 
 
@@ -353,6 +400,101 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
             reposted += 1
 
     return {"ok": True, "notified": True, "checklists_reposted": reposted}
+
+
+@router.get("/admin/weekly")
+async def admin_weekly(caller: Caller = Depends(current_caller)):
+    """Weekly accountability library + this week's occurrences (Feature 3)."""
+    _admin(caller)
+    defs = []
+    for d in weekly_repo.all_defs():
+        defs.append({
+            "weekly_id": d.get("Weekly ID"),
+            "title": d.get("Title"), "instructions": d.get("Instructions"),
+            "weekday": d.get("Weekday"), "time": d.get("Time"),
+            "reminder_times": d.get("Reminder Times"), "cutoff_time": d.get("Cutoff Time"),
+            "default_doer_staff_id": str(d.get("Default Doer Staff ID") or ""),
+            "default_doer_name": d.get("Default Doer Name"),
+            "active": as_bool(d.get("Active")),
+        })
+    # This week's instances (Mon–Sun), so the admin can override a week's doer.
+    from datetime import timedelta
+    today = clock.today()
+    monday = today - timedelta(days=today.weekday())
+    week_dates = {(monday + timedelta(days=i)).isoformat() for i in range(7)}
+    insts = []
+    for r in weekly_repo.all_instances():
+        if str(r.get("Date")) not in week_dates:
+            continue
+        insts.append({
+            "instance_id": r.get("Instance ID"), "weekly_id": r.get("Weekly ID"),
+            "title": r.get("Title"), "date": r.get("Date"), "weekday": r.get("Weekday"),
+            "doer_staff_id": str(r.get("Doer Staff ID") or ""),
+            "doer_name": r.get("Doer Name"), "status": r.get("Status"),
+            "checker_name": r.get("Checker Name"),
+        })
+    insts.sort(key=lambda x: (str(x["date"]), str(x.get("title"))))
+    return {"defs": defs, "instances": insts}
+
+
+@router.post("/admin/weekly")
+async def admin_weekly_save(payload: dict, caller: Caller = Depends(current_caller)):
+    """Add / update / delete a weekly task definition."""
+    _admin(caller)
+    action = payload.get("action", "add")
+    if action == "delete":
+        weekly_repo.update_def(payload["weekly_id"], {"Active": False})
+        return {"ok": True}
+
+    doer = None
+    did = str(payload.get("default_doer_staff_id") or "")
+    if did:
+        doer = staff_repo.get_by_staff_id(did)
+
+    if action == "update":
+        changes = {
+            "Title": payload.get("title", ""),
+            "Instructions": payload.get("instructions", ""),
+            "Weekday": str(payload.get("weekday") or "").upper(),
+            "Time": payload.get("time", ""),
+            "Reminder Times": payload.get("reminder_times", ""),
+            "Cutoff Time": payload.get("cutoff_time", ""),
+            "Default Doer Staff ID": did,
+            "Default Doer Name": (doer or {}).get("Staff Name", "") if doer else "",
+            "Active": True,
+        }
+        weekly_repo.update_def(payload["weekly_id"], changes)
+        return {"ok": True}
+
+    weekly_repo.add_def(
+        title=payload.get("title", ""), instructions=payload.get("instructions", ""),
+        weekday=str(payload.get("weekday") or "").upper(), time=payload.get("time", ""),
+        reminder_times=payload.get("reminder_times", ""),
+        cutoff_time=payload.get("cutoff_time", ""),
+        default_doer=doer, created_by=(caller.staff or {}).get("Staff Name", ""))
+    return {"ok": True}
+
+
+@router.post("/admin/weekly/override")
+async def admin_weekly_override(payload: dict, caller: Caller = Depends(current_caller)):
+    """Override the doer for a single week's occurrence (doesn't change the
+    default). Re-syncs an already-posted card to the new doer."""
+    _admin(caller)
+    inst = weekly_repo.get_instance(payload["instance_id"])
+    if not inst:
+        raise HTTPException(404, "Instance not found.")
+    doer = staff_repo.get_by_staff_id(str(payload.get("doer_staff_id") or "")) \
+        if payload.get("doer_staff_id") else None
+    weekly_repo.update_instance(payload["instance_id"], {
+        "Doer Staff ID": (doer or {}).get("Staff ID", "") if doer else "",
+        "Doer Name": (doer or {}).get("Staff Name", "") if doer else "",
+        "Doer Telegram User ID": str((doer or {}).get("Telegram User ID", "")) if doer else "",
+    })
+    # If the card is already posted and still pending, refresh it for the new doer.
+    if inst.get("Group Message ID") and str(inst.get("Status")) == weekly_repo.ST_PENDING:
+        from app.services import weekly_service
+        await weekly_service._refresh_card(payload["instance_id"])
+    return {"ok": True}
 
 
 @router.get("/admin/assignments")

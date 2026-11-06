@@ -4,9 +4,9 @@
  */
 const PAGES = [
   ["today", "Today"], ["schedule", "Schedule"], ["assignments", "Tasks"],
-  ["staff", "Staff"], ["checklists", "Checklists"], ["timing", "Timing"],
-  ["evidence", "Evidence"], ["recoveries", "Recoveries"], ["reviews", "OIC Reviews"],
-  ["announcements", "Announce"], ["reports", "Reports"],
+  ["weekly", "Weekly"], ["staff", "Staff"], ["checklists", "Checklists"],
+  ["timing", "Timing"], ["evidence", "Evidence"], ["recoveries", "Recoveries"],
+  ["reviews", "OIC Reviews"], ["announcements", "Announce"], ["reports", "Reports"],
   ["settings", "Settings"], ["test", "Test"],
 ];
 
@@ -73,22 +73,115 @@ const PAGE_FN = {
 
   /* ----------------------------------------------------------- SCHEDULE */
   async schedule(app) {
-    const data = await api(`/api/admin/schedule`);
+    const [data, official] = await Promise.all([
+      api(`/api/admin/schedule`), api(`/api/admin/official-schedule`),
+    ]);
     const staff = (await api(`/api/admin/staff`)).staff.filter(s => isTrue(s.Active));
     const opts = (sel) => staff.map(s =>
       `<option value="${esc(s["Staff ID"])}" ${sel===s["Staff ID"]?"selected":""}>${esc(s["Staff Name"])}</option>`).join("");
-    let h = `<h1>Schedule</h1>`;
+    const WD = { MON:"Monday", TUE:"Tuesday", WED:"Wednesday", THU:"Thursday",
+                 FRI:"Friday", SAT:"Saturday", SUN:"Sunday" };
+
+    // ---- Official weekly template (followed automatically every week) ----
+    let h = `<h1>Schedule</h1>
+      <div class="card" style="background:#f4f8ff">
+        <h2>⭐ Official weekly schedule</h2>
+        <p class="sub">Set this once. Every week follows it automatically — no need to
+          re-apply. Editing a specific date below never changes this template.</p>
+      </div>`;
+    official.rows.forEach(r => {
+      h += `<div class="card"><strong>${esc(WD[r.weekday]||r.weekday)}</strong>
+        <label>Opener</label><select id="oop_${r.weekday}"><option value="">—</option>${opts(r.opener_staff_id)}</select>
+        <label>Closer</label><select id="ocl_${r.weekday}"><option value="">—</option>${opts(r.closer_staff_id)}</select>
+        <label>Closing peak support (optional)</label><select id="opk_${r.weekday}"><option value="">— none —</option>${opts(r.closing_peak_staff_id)}</select>
+        <button class="ghost" onclick="saveOfficial('${r.weekday}')">💾 Save ${esc(WD[r.weekday]||r.weekday)}</button></div>`;
+    });
+
+    // ---- Per-date overrides (shows the effective person for each day) ----
+    h += `<div class="card" style="background:#fff7f0">
+        <h2>📅 This week</h2>
+        <p class="sub">Each day follows the official schedule unless you override it here
+          (e.g. a no-show or swap). “(official)” means it's coming from the template.</p>
+      </div>`;
+    const tag = (src) => src === "official"
+      ? ` <span class="sub" style="color:#c97a00">(official)</span>`
+      : (src === "none" ? ` <span class="sub" style="color:#b00">(unassigned)</span>` : "");
     data.rows.forEach(r => {
-      h += `<div class="card"><strong>${esc(r.Date)} (${esc(r.Day||"")})</strong>
+      h += `<div class="card"><strong>${esc(r.date)} (${esc(WD[r.day]||r.day||"")})</strong>
         <label>Status</label>
-        <select id="st_${r.Date}"><option ${r.Status==="OPEN"?"selected":""}>OPEN</option>
-          <option ${r.Status==="CLOSED"?"selected":""}>CLOSED</option></select>
-        <label>Opener</label><select id="op_${r.Date}"><option value="">—</option>${opts(r["Opener Staff ID"])}</select>
-        <label>Closer</label><select id="cl_${r.Date}"><option value="">—</option>${opts(r["Closer Staff ID"])}</select>
-        <button class="ghost" onclick="saveSched('${r.Date}')">💾 Save ${esc(r.Date)}</button>
-        <button class="secondary" onclick="notifyAssignment('${r.Date}')">📢 Notify Group</button></div>`;
+        <select id="st_${r.date}"><option ${r.status==="OPEN"?"selected":""}>OPEN</option>
+          <option ${r.status==="CLOSED"?"selected":""}>CLOSED</option></select>
+        <label>Opener${tag(r.opener_src)}</label><select id="op_${r.date}"><option value="">—</option>${opts(r.opener_id)}</select>
+        <label>Closer${tag(r.closer_src)}</label><select id="cl_${r.date}"><option value="">—</option>${opts(r.closer_id)}</select>
+        <label>Closing peak support${tag(r.peak_src)}</label><select id="pk_${r.date}"><option value="">— none —</option>${opts(r.peak_id)}</select>
+        <button class="ghost" onclick="saveSched('${r.date}')">💾 Save ${esc(r.date)}</button>
+        <button class="secondary" onclick="notifyAssignment('${r.date}')">📢 Notify Group</button></div>`;
     });
     h += `<button class="secondary" onclick="copyWeek()">Copy This Week → Next Week</button>`;
+    app.innerHTML = h;
+  },
+
+  /* ------------------------------------------------ WEEKLY ACCOUNTABILITY */
+  async weekly(app) {
+    const data = await api(`/api/admin/weekly`);
+    const staff = (await api(`/api/admin/staff`)).staff.filter(s => isTrue(s.Active));
+    const WD = ["MON","TUE","WED","THU","FRI","SAT","SUN"];
+    const WDFULL = { MON:"Monday", TUE:"Tuesday", WED:"Wednesday", THU:"Thursday",
+                     FRI:"Friday", SAT:"Saturday", SUN:"Sunday" };
+    const sopts = (sel) => staff.map(s =>
+      `<option value="${esc(s["Staff ID"])}" ${sel===s["Staff ID"]?"selected":""}>${esc(s["Staff Name"])}</option>`).join("");
+    const wopts = (sel) => WD.map(w =>
+      `<option value="${w}" ${sel===w?"selected":""}>${WDFULL[w]}</option>`).join("");
+    const badge = { "Verified":"✅ Verified", "Doer Done":"🟠 Needs verifying",
+                    "Pending":"🟡 Pending", "Missing":"🔴 Missing" };
+
+    let h = `<h1>Weekly Checklists</h1>
+      <div class="card" style="background:#f4f8ff">
+        <p class="sub">Recurring accountability checklists (e.g. General Cleaning).
+          Each is one photo-proof item: the <b>doer</b> photographs the finished paper,
+          then a <b>different</b> staffer (next shift or the OIC) photographs it again
+          with their verification checks. Both happen in the staff group by photo.</p>
+      </div>`;
+
+    // ---- This week's occurrences (with per-week doer override) ----
+    h += `<div class="card" style="background:#fff7f0"><h2>📅 This week</h2>
+      <p class="sub">Override a single week's doer here (doesn't change the default).</p></div>`;
+    if (!data.instances.length) {
+      h += `<div class="card"><p class="sub">No occurrences generated for this week yet.</p></div>`;
+    }
+    data.instances.forEach(i => {
+      h += `<div class="card"><strong>${esc(i.title)}</strong>
+        <div class="muted">${esc(WDFULL[i.weekday]||i.weekday)} ${esc(i.date)} • ${esc(badge[i.status]||i.status)}${i.checker_name?` • by ${esc(i.checker_name)}`:""}</div>
+        <label>Doer (this week)</label>
+        <select id="wi_${i.instance_id}"><option value="">— unassigned —</option>${sopts(i.doer_staff_id)}</select>
+        <button class="ghost" onclick="saveWeeklyOverride('${i.instance_id}')">💾 Save doer</button></div>`;
+    });
+
+    // ---- The permanent library ----
+    h += `<div class="card" style="background:#f4f8ff"><h2>📚 Weekly task library</h2></div>`;
+    data.defs.filter(d => d.active).forEach(d => {
+      h += `<div class="card"><strong>${esc(d.title)}</strong>
+        <label>Title</label><input id="wt_title_${d.weekly_id}" value="${esc(d.title||"")}"/>
+        <label>Instructions (optional)</label><input id="wt_instr_${d.weekly_id}" value="${esc(d.instructions||"")}"/>
+        <label>Day</label><select id="wt_day_${d.weekly_id}">${wopts(d.weekday)}</select>
+        <label>Time (24h, e.g. 11:00)</label><input id="wt_time_${d.weekly_id}" value="${esc(d.time||"")}"/>
+        <label>Reminder times (comma, e.g. 11:30,12:30)</label><input id="wt_rem_${d.weekly_id}" value="${esc(d.reminder_times||"")}"/>
+        <label>Cutoff time (e.g. 13:00)</label><input id="wt_cut_${d.weekly_id}" value="${esc(d.cutoff_time||"")}"/>
+        <label>Default doer</label><select id="wt_doer_${d.weekly_id}"><option value="">— none —</option>${sopts(d.default_doer_staff_id)}</select>
+        <button class="ghost" onclick="saveWeekly('${d.weekly_id}')">💾 Save</button>
+        <button class="ghost" onclick="deleteWeekly('${d.weekly_id}')">🗑 Remove</button></div>`;
+    });
+
+    // ---- Add new ----
+    h += `<div class="card"><h2>➕ Add a weekly task</h2>
+      <label>Title</label><input id="nw_title" placeholder="e.g. General Cleaning"/>
+      <label>Instructions (optional)</label><input id="nw_instr" placeholder="What to check / photograph"/>
+      <label>Day</label><select id="nw_day">${wopts("MON")}</select>
+      <label>Time (24h)</label><input id="nw_time" placeholder="11:00"/>
+      <label>Reminder times (comma)</label><input id="nw_rem" placeholder="11:30,12:30"/>
+      <label>Cutoff time</label><input id="nw_cut" placeholder="13:00"/>
+      <label>Default doer</label><select id="nw_doer"><option value="">— none —</option>${sopts("")}</select>
+      <button onclick="addWeekly()">➕ Add weekly task</button></div>`;
     app.innerHTML = h;
   },
 
@@ -294,8 +387,47 @@ const PAGE_FN = {
 async function saveSched(date) {
   await api(`/api/admin/schedule`, { method: "POST", body: {
     date, status: val(`st_${date}`),
-    opener_staff_id: val(`op_${date}`), closer_staff_id: val(`cl_${date}`) } });
+    opener_staff_id: val(`op_${date}`), closer_staff_id: val(`cl_${date}`),
+    closing_peak_staff_id: val(`pk_${date}`) } });
   toast("Saved " + date);
+}
+async function saveOfficial(wd) {
+  await api(`/api/admin/official-schedule`, { method: "POST", body: {
+    weekday: wd,
+    opener_staff_id: val(`oop_${wd}`), closer_staff_id: val(`ocl_${wd}`),
+    closing_peak_staff_id: val(`opk_${wd}`) } });
+  toast("Saved official " + wd);
+}
+async function addWeekly() {
+  const title = val("nw_title");
+  if (!title) { toast("Enter a title."); return; }
+  await api(`/api/admin/weekly`, { method: "POST", body: {
+    action: "add", title, instructions: val("nw_instr"),
+    weekday: val("nw_day"), time: val("nw_time"),
+    reminder_times: val("nw_rem"), cutoff_time: val("nw_cut"),
+    default_doer_staff_id: val("nw_doer") } });
+  toast("✅ Weekly task added");
+  go("weekly");
+}
+async function saveWeekly(id) {
+  await api(`/api/admin/weekly`, { method: "POST", body: {
+    action: "update", weekly_id: id,
+    title: val(`wt_title_${id}`), instructions: val(`wt_instr_${id}`),
+    weekday: val(`wt_day_${id}`), time: val(`wt_time_${id}`),
+    reminder_times: val(`wt_rem_${id}`), cutoff_time: val(`wt_cut_${id}`),
+    default_doer_staff_id: val(`wt_doer_${id}`) } });
+  toast("Saved");
+}
+async function deleteWeekly(id) {
+  if (!confirm("Remove this weekly task? Past records stay in the sheet.")) return;
+  await api(`/api/admin/weekly`, { method: "POST", body: { action: "delete", weekly_id: id } });
+  toast("Removed");
+  go("weekly");
+}
+async function saveWeeklyOverride(iid) {
+  await api(`/api/admin/weekly/override`, { method: "POST", body: {
+    instance_id: iid, doer_staff_id: val(`wi_${iid}`) } });
+  toast("Doer updated for this week");
 }
 async function notifyAssignment(date) {
   await api(`/api/admin/notify-assignment`, { method: "POST", body: { date } });

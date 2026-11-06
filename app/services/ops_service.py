@@ -28,6 +28,24 @@ def _is_incomplete(task: dict) -> bool:
     return task.get("Original Submission Status") == constants.SUB_PENDING
 
 
+def _peak_mention(task: dict) -> str:
+    """A tappable mention for the closing peak-support staffer, or ''."""
+    import html as _html
+
+    sid = str(task.get("Peak Staff ID") or "")
+    if not sid:
+        return ""
+    s = staff_repo.get_by_staff_id(sid)
+    uname = str((s or {}).get("Telegram Username") or "").lstrip("@")
+    name = task.get("Peak Staff Name") or "peak support"
+    tgid = task.get("Peak Telegram User ID")
+    if uname:
+        return f"@{uname}"
+    if tgid:
+        return f'<a href="tg://user?id={tgid}">{_html.escape(str(name))}</a>'
+    return _html.escape(str(name))
+
+
 async def send_due_reminders(task: dict) -> None:
     if not _is_incomplete(task):
         return
@@ -49,6 +67,11 @@ async def send_due_reminders(task: dict) -> None:
         # pings the staff even if they haven't started a private bot chat.
         fresh = task_service.with_mention(task)
         mention = fresh.get("_assignee_mention") or task.get("Assigned Staff Name")
+        # Also tag the closing peak-support staffer (if any) — either of them can
+        # finish the shared closing checklist (spec Feature 2).
+        peak_mention = _peak_mention(task)
+        if peak_mention:
+            mention = f"{mention} / {peak_mention}"
         group = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
         sent = await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
         # Track the group reminder so we can delete it once the task is submitted.
@@ -56,9 +79,10 @@ async def send_due_reminders(task: dict) -> None:
             from app.repositories import reminder_repo
             reminder_repo.log_reminder(task["Task ID"], group, sent.message_id)
         # Best-effort private DM too (works only if they've started the bot).
-        tg = task.get("Assigned Telegram User ID")
-        if tg:
-            await notify.send_message(tg, messages.staff_reminder(task, missing))
+        for tg in (task.get("Assigned Telegram User ID"),
+                   task.get("Peak Telegram User ID")):
+            if tg:
+                await notify.send_message(tg, messages.staff_reminder(task, missing))
         markers.mark(key)
 
 
@@ -127,16 +151,17 @@ async def cutoff_if_due(task: dict) -> None:
     fresh["_missing_text"] = ", ".join(missing)
     await task_service.refresh_group_card(task["Task ID"])
 
-    # Notify assigned employee + OIC (spec section 18).
-    tg = task.get("Assigned Telegram User ID")
-    if tg:
-        await notify.send_message(
-            tg,
-            f"🔴 <b>{task['Checklist Type']} cutoff reached.</b>\n\n"
-            f"Missing at cutoff:\n" + ("\n".join(f"   ⚠️ {m}" for m in missing) or "   ⚠️ —")
-            + "\n\n👉 You can still submit — it'll be recorded as <b>completed late</b>. "
-            "Tap /mytask to finish it.",
-        )
+    # Notify assigned employee (+ peak support) + OIC (spec section 18).
+    for tg in (task.get("Assigned Telegram User ID"),
+               task.get("Peak Telegram User ID")):
+        if tg:
+            await notify.send_message(
+                tg,
+                f"🔴 <b>{task['Checklist Type']} cutoff reached.</b>\n\n"
+                f"Missing at cutoff:\n" + ("\n".join(f"   ⚠️ {m}" for m in missing) or "   ⚠️ —")
+                + "\n\n👉 You can still submit — it'll be recorded as <b>completed late</b>. "
+                "Tap /mytask to finish it.",
+            )
     # Cutoff alert to the OIC — or the admin if the task is assigned to the OIC.
     target, _, _ = staff_repo.oversight_target(task.get("Assigned Telegram User ID"))
     sent = await notify.send_message(

@@ -65,6 +65,7 @@ def create_task(
     release_at: datetime,
     cutoff_at: datetime,
     group_chat_id: int,
+    peak: dict | None = None,
 ) -> dict:
     row = {
         "Task ID": gen_id("TASK"),
@@ -75,6 +76,10 @@ def create_task(
         "Assigned Staff ID": staff.get("Staff ID", ""),
         "Assigned Staff Name": staff.get("Staff Name", ""),
         "Assigned Telegram User ID": str(staff.get("Telegram User ID", "")),
+        "Peak Staff ID": (peak or {}).get("Staff ID", ""),
+        "Peak Staff Name": (peak or {}).get("Staff Name", ""),
+        "Peak Telegram User ID": str((peak or {}).get("Telegram User ID", "")),
+        "Submitted By Name": "",
         "Release At": release_at.isoformat(),
         "Cutoff At": cutoff_at.isoformat(),
         "Initial Message ID": "",

@@ -73,6 +73,10 @@ async def _tick_inner() -> None:
     # 3b) Staff assignment reminders (ad-hoc tasks): due-time + every-2h nudges.
     await _assignment_reminders(now)
 
+    # 3c) Weekly accountability checklists (Feature 3): generate this week's
+    #     occurrences, post at their time, remind, and flag missed-at-cutoff.
+    await _weekly_accountability(now, today)
+
     # 4) Daily summary (covers the PREVIOUS operating date) at configured time.
     summary_time = settings_store.get(constants.SETTING_DAILY_SUMMARY_TIME)  # "00:05"
     if _hhmm(now) == summary_time:
@@ -159,6 +163,44 @@ async def _assignment_reminders(now) -> None:
             from app.repositories import reminder_repo
             reminder_repo.log_reminder(a["Assignment ID"], group_id, sent.message_id)
         markers.mark(ev["key"])
+
+
+async def _weekly_accountability(now, today) -> None:
+    """Drive the weekly accountability checklists: ensure this week's instances
+    exist, post each at its time, send reminders, and flag missed cutoffs.
+    Restart-safe + duplicate-safe via the marker ledger."""
+    from app.config import get_settings
+    from app.repositories import reminder_repo
+    from app.services import weekly_service
+    from app.telegram import notify
+
+    group_id = get_settings().staff_group_chat_id
+
+    # Generate missing occurrences for the current week (so doers can be
+    # overridden early). Marker-guarded to once/day.
+    key = f"weekly_gen::{today.isoformat()}"
+    if not markers.done(key):
+        weekly_service.ensure_instances(today)
+        markers.mark(key)
+
+    # Post each occurrence's card at its time.
+    for inst in weekly_service.due_to_post(now):
+        await weekly_service.post_card(inst)
+
+    # Reminders while still open.
+    for ev in weekly_service.reminders_due(now):
+        if markers.done(ev["key"]):
+            continue
+        inst = ev["inst"]
+        sent = await notify.send_message(
+            group_id, weekly_service.card(inst, header="🔔 <b>WEEKLY CHECKLIST — reminder</b>"))
+        if sent:
+            reminder_repo.log_reminder(inst["Instance ID"], group_id, sent.message_id)
+        markers.mark(ev["key"])
+
+    # Cutoff sweep (marks Missing + alerts the OIC; the status change itself is
+    # the idempotency guard — a Missing instance is no longer "open").
+    await weekly_service.cutoff_if_due(now)
 
 
 async def _owner_brief(now) -> None:

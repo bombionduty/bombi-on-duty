@@ -163,7 +163,10 @@ async def cmd_mytask(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     uid = _uid(update)
     found = False
     for t in task_repo.for_date(clock.today()):
-        if str(t.get("Assigned Telegram User ID")) != str(uid):
+        # The assignee OR the closing peak-support staffer can open it.
+        is_assignee = str(t.get("Assigned Telegram User ID")) == str(uid)
+        is_peak = str(t.get("Peak Telegram User ID") or "") == str(uid)
+        if not (is_assignee or is_peak):
             continue
         if not task_service.is_openable(t):
             continue
@@ -593,28 +596,54 @@ async def on_group_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None
     if msg.chat_id != get_settings().staff_group_chat_id:
         return  # only the staff group; never elsewhere
     uid = msg.from_user.id if msg.from_user else 0
-
-    from app.services import assignment_service
-    target = None
-    if msg.reply_to_message:
-        target = assignment_service.find_by_message(msg.reply_to_message.message_id)
-    opens = assignment_service.open_for_staff(uid)
-    if not target and len(opens) == 1:
-        target = opens[0]  # only one open task -> unambiguous, no reply needed
-    if not target:
-        # Multiple open tasks and they didn't reply to a specific one — ask them to.
-        if len(opens) >= 2:
-            await msg.reply_text(
-                f"📸 You have <b>{len(opens)} open tasks</b>. Please <b>reply</b> to the "
-                f"specific task's message with your photo so I know which one it's for.",
-                parse_mode="HTML")
-        return  # otherwise ignore quietly (e.g. an unrelated group photo)
-
     file_id = msg.photo[-1].file_id
-    ok, note = await assignment_service.attach_proof(target["Assignment ID"], uid, file_id)
-    if ok:
+
+    from app.services import assignment_service, weekly_service
+
+    # 1) If they replied to a specific card/reminder, match that first — try
+    #    ad-hoc staff tasks, then weekly accountability checklists.
+    if msg.reply_to_message:
+        rmid = msg.reply_to_message.message_id
+        asg = assignment_service.find_by_message(rmid)
+        if asg:
+            ok, note = await assignment_service.attach_proof(asg["Assignment ID"], uid, file_id)
+            if ok:
+                await msg.reply_text(
+                    f"{note}\n<b>{messages.esc(asg.get('Title'))}</b>", parse_mode="HTML")
+            return
+        wk = weekly_service.find_by_message(rmid)
+        if wk:
+            ok, note = await weekly_service.attach_photo(wk["Instance ID"], uid, file_id)
+            if ok:
+                await msg.reply_text(
+                    f"{note}\n<b>{messages.esc(wk.get('Title'))}</b>", parse_mode="HTML")
+            return
+        return  # replied to something unrelated — stay quiet
+
+    # 2) No reply: auto-match only if the sender has exactly one open item across
+    #    both ad-hoc tasks and weekly checklists.
+    asg_opens = assignment_service.open_for_staff(uid)
+    wk_opens = weekly_service.pending_for_staff(uid)
+    total = len(asg_opens) + len(wk_opens)
+    if total == 1:
+        if asg_opens:
+            a = asg_opens[0]
+            ok, note = await assignment_service.attach_proof(a["Assignment ID"], uid, file_id)
+            if ok:
+                await msg.reply_text(
+                    f"{note}\n<b>{messages.esc(a.get('Title'))}</b>", parse_mode="HTML")
+        else:
+            w = wk_opens[0]
+            ok, note = await weekly_service.attach_photo(w["Instance ID"], uid, file_id)
+            if ok:
+                await msg.reply_text(
+                    f"{note}\n<b>{messages.esc(w.get('Title'))}</b>", parse_mode="HTML")
+        return
+    if total >= 2:
         await msg.reply_text(
-            f"{note}\n<b>{messages.esc(target.get('Title'))}</b>", parse_mode="HTML")
+            f"📸 You have <b>{total} open items</b>. Please <b>reply</b> to the specific "
+            f"task's message with your photo so I know which one it's for.",
+            parse_mode="HTML")
 
 
 def register(application) -> None:

@@ -36,9 +36,14 @@ def _title(ct: str) -> str:
 
 
 def _who(task: dict, role_label: str) -> str:
-    """Assignee mention. Prefers a tappable mention set by the caller."""
+    """Assignee mention. Prefers a tappable mention set by the caller.
+    For a closing checklist with peak support, show the peak staffer too."""
     mention = task.get("_assignee_mention") or esc(task.get("Assigned Staff Name"))
-    return f"Assigned {role_label}: {mention}"
+    line = f"Assigned {role_label}: {mention}"
+    peak = task.get("Peak Staff Name")
+    if peak:
+        line += f"\n🤝 Peak support: {esc(peak)} (either can complete)"
+    return line
 
 
 # ----------------------------------------------------- Group checkpoint card
@@ -58,12 +63,15 @@ def group_card(task: dict, role_label: str) -> str:
         result = task.get("Checklist Result")
         result_line = ("🎉 Result: All Complete" if result == constants.RESULT_ALL_COMPLETE
                        else "📝 Result: Issue Reported")
+        # Name who actually submitted (closer or peak support), when recorded.
+        by = task.get("Submitted By Name")
+        by_line = f"\n✍️ Submitted by: {esc(by)}" if by else ""
         return (
             f"{_title(ct)}\n\n{_who(task, role_label)}\n"
             f"{emoji} Status: {esc(status)}\n"
             f"{result_line}\n"
             f"📎 Evidence: {esc(task.get('Evidence Status'))}\n"
-            f"🕐 Submitted: {submitted}"
+            f"🕐 Submitted: {submitted}{by_line}"
         )
     if status == constants.SUB_NOT_SUBMITTED:
         if task.get("Resolution Status") == constants.RES_RECOVERED_OIC:

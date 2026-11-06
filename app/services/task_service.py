@@ -73,6 +73,16 @@ async def _create_and_post(d, checklist_type, timing, sched) -> dict | None:
         log.warning("No active %s assigned for %s on %s", responsible, checklist_type, d)
         return None
 
+    # Closing peak support (closer-side only): a second staffer who may open and
+    # continue the SAME closing checklist (spec Feature 2).
+    peak = None
+    if responsible == "closer":
+        peak_id = schedule_repo.peak_staff_id(d)
+        if peak_id and peak_id != staff_id:
+            cand = staff_repo.get_by_staff_id(peak_id)
+            if cand and as_bool(cand.get("Active")):
+                peak = cand
+
     token = new_task_token()
     task = task_repo.create_task(
         d, checklist_type,
@@ -81,6 +91,7 @@ async def _create_and_post(d, checklist_type, timing, sched) -> dict | None:
         release_at=timing.release_at,
         cutoff_at=timing.cutoff_at,
         group_chat_id=get_settings().staff_group_chat_id,
+        peak=peak,
     )
     # Snapshot the active template items (spec section 35).
     template_items = checklist_repo.active_items_for(checklist_type, d)
@@ -228,11 +239,25 @@ async def repost_checklist(d: date, checklist_type: str) -> dict | None:
     task_id = str(task["Task ID"])
     # Re-sync assignment (Staff ID + Name + Telegram User ID — the last is what
     # authorization actually checks).
-    task_repo.update(task_id, {
+    changes = {
         "Assigned Staff ID": staff.get("Staff ID", ""),
         "Assigned Staff Name": staff.get("Staff Name", ""),
         "Assigned Telegram User ID": str(staff.get("Telegram User ID", "")),
-    })
+    }
+    # Closing peak support may also have changed — re-sync it too.
+    if responsible == "closer":
+        peak_id = schedule_repo.peak_staff_id(d)
+        peak = staff_repo.get_by_staff_id(peak_id) if peak_id else None
+        if peak and as_bool(peak.get("Active")) and peak_id != str(staff.get("Staff ID", "")):
+            changes.update({
+                "Peak Staff ID": peak.get("Staff ID", ""),
+                "Peak Staff Name": peak.get("Staff Name", ""),
+                "Peak Telegram User ID": str(peak.get("Telegram User ID", "")),
+            })
+        else:
+            changes.update({"Peak Staff ID": "", "Peak Staff Name": "",
+                            "Peak Telegram User ID": ""})
+    task_repo.update(task_id, changes)
     task = task_repo.get(task_id)
 
     # Retire the old group card (drop its button + mark it reassigned).

@@ -54,7 +54,12 @@ def authorize_open(task: dict | None, tg_id: int) -> dict:
     assignee = staff_repo.get_by_telegram_id(tg_id)
     if not assignee or not as_bool(assignee.get("Active")):
         raise AuthError("Your account is not active. Please contact the admin.")
-    if str(task.get("Assigned Telegram User ID")) != str(tg_id):
+    # The assigned closer OR the closing peak-support staffer may open the SAME
+    # closing checklist and continue where the other left off (spec Feature 2).
+    peak_tg = str(task.get("Peak Telegram User ID") or "")
+    allowed = str(task.get("Assigned Telegram User ID")) == str(tg_id) or (
+        peak_tg and peak_tg == str(tg_id))
+    if not allowed:
         raise AuthError(
             f"This checklist is assigned to {task.get('Assigned Staff Name')}. "
             "Please ask the assigned staff member or the admin to complete it."
@@ -97,6 +102,7 @@ def build_payload(task: dict, tg_id: int) -> dict:
         "checklist_type": task["Checklist Type"],
         "operating_date": task["Date"],
         "assigned_staff": task.get("Assigned Staff Name"),
+        "peak_staff": task.get("Peak Staff Name") or "",
         "deadline": clock.fmt_time(clock.from_iso(task.get("Cutoff At"))),
         "deadline_iso": task.get("Cutoff At"),
         "status": task.get("Original Submission Status"),
@@ -171,11 +177,18 @@ async def submit(
     # Compute (don't write) — folded into the single task update below.
     ev_status = task_service.compute_evidence_status(task_id)
 
+    # Record WHO submitted (the assigned closer or the peak-support staffer who
+    # finished it) so the group/summary can show the real submitter.
+    submitter = staff_repo.get_by_telegram_id(tg_id)
+    submitter_name = str((submitter or {}).get("Staff Name")
+                         or task.get("Assigned Staff Name", ""))
+
     changes = {
         "Submitted At": clock.iso(clock.now()),
         "Original Submission Status": sub_status,
         "Checklist Result": result,
         "Evidence Status": ev_status,
+        "Submitted By Name": submitter_name,
         "Resolution Status": (constants.RES_LATE_BY_STAFF if late
                               else constants.RES_NONE),
     }

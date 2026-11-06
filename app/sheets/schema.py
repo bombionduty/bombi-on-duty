@@ -11,6 +11,7 @@ from __future__ import annotations
 
 STAFF = "Staff"
 SCHEDULE = "Schedule"
+OFFICIAL_SCHEDULE = "Official Schedule"
 CHECKLIST_TEMPLATES = "Checklist Templates"
 CHECKLIST_TIMING = "Checklist Timing"
 TIMING_OVERRIDES = "Timing Overrides"
@@ -27,6 +28,10 @@ AUDIT_LOG = "Audit Log"
 STAFF_ASSIGNMENTS = "Staff Assignments"
 TASK_REMINDERS = "Task Reminders"
 
+# ---- Weekly accountability checklists (Phase B / Feature 3) ----
+WEEKLY_TASKS = "Weekly Tasks"          # the permanent library of weekly items
+WEEKLY_INSTANCES = "Weekly Instances"  # one row per week's occurrence
+
 # ---- Owner Mode (Bombi On Call) — completely separate from staff data ----
 ADMIN_TASKS = "AdminTasks"
 ADMIN_RECURRING = "AdminRecurring"
@@ -41,7 +46,12 @@ HEADERS: dict[str, list[str]] = {
     ],
     SCHEDULE: [
         "Date", "Day", "Status", "Opener Staff ID", "Opener Name",
-        "Closer Staff ID", "Closer Name", "Notes", "Created At", "Updated At",
+        "Closer Staff ID", "Closer Name", "Closing Peak Staff ID",
+        "Closing Peak Name", "Notes", "Created At", "Updated At",
+    ],
+    OFFICIAL_SCHEDULE: [
+        "Weekday", "Opener Staff ID", "Opener Name", "Closer Staff ID",
+        "Closer Name", "Closing Peak Staff ID", "Closing Peak Name", "Updated At",
     ],
     CHECKLIST_TEMPLATES: [
         "Item ID", "Checklist Type", "Item Name", "Instructions", "Item Type",
@@ -60,6 +70,8 @@ HEADERS: dict[str, list[str]] = {
     TASKS: [
         "Task ID", "Task Key", "Task Token Hash", "Date", "Checklist Type",
         "Assigned Staff ID", "Assigned Staff Name", "Assigned Telegram User ID",
+        "Peak Staff ID", "Peak Staff Name", "Peak Telegram User ID",
+        "Submitted By Name",
         "Release At", "Cutoff At", "Initial Message ID", "Staff Group Chat ID",
         "OIC Alert Message ID", "Daily Summary Message ID", "Started At",
         "Submitted At", "Original Submission Status", "Checklist Result",
@@ -123,6 +135,22 @@ HEADERS: dict[str, list[str]] = {
     ],
     TASK_REMINDERS: [
         "Task ID", "Chat ID", "Message ID", "Deleted", "Created At",
+    ],
+
+    # ---- Weekly accountability checklists (Feature 3) ----
+    WEEKLY_TASKS: [
+        "Weekly ID", "Title", "Instructions", "Weekday", "Time",
+        "Reminder Times", "Cutoff Time", "Default Doer Staff ID",
+        "Default Doer Name", "Active", "Created By", "Created At", "Updated At",
+    ],
+    WEEKLY_INSTANCES: [
+        "Instance ID", "Weekly ID", "Title", "Date", "Weekday",
+        "Doer Staff ID", "Doer Name", "Doer Telegram User ID",
+        "Status", "Doer Photo File ID", "Doer Submitted At",
+        "Checker Staff ID", "Checker Name", "Checker Telegram User ID",
+        "Checker Photo File ID", "Checker Verified At",
+        "Group Message ID", "Time", "Cutoff At", "Missing At Cutoff",
+        "Created At", "Updated At",
     ],
 
     # ---- Owner Mode tabs (separate from all staff data above) ----

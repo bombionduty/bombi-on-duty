@@ -90,6 +90,14 @@ def build_text(ref: date | None = None) -> str:
                 lines.append(f"  • {e(r.get('Original Assigned Staff Name'))} — "
                              f"{e(r.get('Missing Items at Cutoff'))} "
                              f"at {clock.fmt_dt(clock.from_iso(r.get('Recovery Submitted At')))}")
+    # Weekly accountability checklists (Feature 3).
+    try:
+        from app.services import weekly_service
+        lines.append("")
+        lines += weekly_service.week_summary_lines(start, end)
+    except Exception:
+        pass
+
     lines.append("\nFor coaching and follow-up — not punishment.")
     return "\n".join(lines)
 
