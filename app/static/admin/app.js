@@ -348,11 +348,15 @@ const PAGE_FN = {
   /* ------------------------------------------------------------ TIMING */
   async timing(app) {
     const d = await api(`/api/admin/timing`);
-    let h = `<h1>Timing (Asia/Manila)</h1>`;
+    let h = `<h1>Timing (Asia/Manila)</h1>
+      <div class="card" style="background:#fff7f0"><p class="sub">⏰ All times are <b>24-hour</b>:
+        11:15 PM = <b>23:15</b>, 1:00 AM = <b>01:00</b>. Reminders apply to the row whose
+        <b>Day Type</b> matches the date (Weekend = Sat/Sun), so set them on the right row
+        (or on all rows for that checklist).</p></div>`;
     d.timing.forEach(r => {
       h += `<div class="card"><strong>${esc(r["Checklist Type"])} (${esc(r["Day Type"])})</strong>
         <label>Release</label><input id="rl_${r["Checklist Type"]}_${r["Day Type"]}" value="${esc(r["Release Time"])}"/>
-        <label>Staff reminders (comma)</label><input id="rm_${r["Checklist Type"]}_${r["Day Type"]}" value="${esc(r["Staff Reminder Times"])}"/>
+        <label>Staff reminders (comma, 24h e.g. 23:15)</label><input id="rm_${r["Checklist Type"]}_${r["Day Type"]}" value="${esc(r["Staff Reminder Times"])}"/>
         <label>OIC escalation</label><input id="es_${r["Checklist Type"]}_${r["Day Type"]}" value="${esc(r["OIC Escalation Time"])}"/>
         <label>Cutoff</label><input id="co_${r["Checklist Type"]}_${r["Day Type"]}" value="${esc(r["Cutoff Time"])}"/>
         <button class="ghost" onclick="saveTiming('${esc(r["Checklist Type"])}','${esc(r["Day Type"])}')">Save</button></div>`;
