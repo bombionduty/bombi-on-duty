@@ -405,6 +405,16 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
     return {"ok": True, "notified": True, "checklists_reposted": reposted}
 
 
+@router.post("/admin/task/{task_id}/reannounce")
+async def admin_reannounce(task_id: str, caller: Caller = Depends(current_caller)):
+    """Re-post a submitted checklist's completion message to the staff group."""
+    _admin(caller)
+    ok, msg = await submission_service.reannounce(task_id)
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"ok": True, "message": msg}
+
+
 @router.get("/admin/weekly")
 async def admin_weekly(caller: Caller = Depends(current_caller)):
     """Weekly accountability library + this week's occurrences (Feature 3)."""

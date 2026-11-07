@@ -40,3 +40,21 @@ def test_announcement_complete_on_time(monkeypatch):
     assert "Submitted (Complete)" in t
     assert "on time" in t
     assert "Not submitted" not in t
+
+
+def test_reannounce_requires_submitted(monkeypatch):
+    _capture(monkeypatch)
+    monkeypatch.setattr(ss.task_repo, "get", lambda tid: {"Task ID": tid})  # no Submitted At
+    ok, msg = asyncio.run(ss.reannounce("TASK-1"))
+    assert ok is False and "hasn't been submitted" in msg
+
+
+def test_reannounce_posts_for_submitted(monkeypatch):
+    box = _capture(monkeypatch)
+    submitted = {**TASK, "Task ID": "TASK-1"}
+    monkeypatch.setattr(ss.task_repo, "get", lambda tid: submitted)
+    monkeypatch.setattr(ss.task_service, "missing_items", lambda tid: ["Photo of sales"])
+    ok, msg = asyncio.run(ss.reannounce("TASK-1"))
+    assert ok is True
+    assert "Submitted (Incomplete)" in box["text"]
+    assert "Photo of sales" in box["text"]

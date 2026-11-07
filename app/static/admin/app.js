@@ -78,7 +78,8 @@ const PAGE_FN = {
         <div class="muted">${esc(t.assigned||"—")} • ${esc(t.result||"")} ${esc(t.evidence||"")}</div>
         ${t.missing && t.missing.length ? `<div class="muted">Missing: ${t.missing.map(esc).join(", ")}</div>` : ""}
         <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
-        ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">${label}</button>` : ""}</div>`;
+        ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">${label}</button>` : ""}
+        ${t.submitted ? `<button class="ghost" onclick="reannounce('${esc(t.task_id)}')">📣 Re-announce to group</button>` : ""}</div>`;
     });
     h += `<button class="secondary" onclick="sendEvidence('${esc(d.date)}')">📤 Send All Evidence Here</button>
       <button class="ghost" onclick="markClosed('${esc(d.date)}')">Mark This Day Closed</button>`;
@@ -450,6 +451,12 @@ async function notifyAssignment(date) {
 function setAdminDate(v) {
   ADMIN_DATE = v || null;
   go("today");
+}
+async function reannounce(taskId) {
+  try {
+    const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/reannounce`, { method: "POST" });
+    toast(r.message || "Posted to the group ✅");
+  } catch (e) { toast(e.message || "Could not post to the group"); }
 }
 function completeAsAdmin(taskId) {
   // Open the SAME checklist form the staff use, for this task. The admin is

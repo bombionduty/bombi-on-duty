@@ -152,25 +152,53 @@ def _is_late(task: dict) -> bool:
 
 
 async def _announce_admin_completion(task: dict, not_submitted: list[str], late: bool) -> None:
-    """Post a clear admin-completion card to the staff group."""
+    """Post a clear completion card to the staff group (used on an admin
+    completion, and on-demand via re-announce)."""
     from app.telegram import messages
     ct = task.get("Checklist Type")
-    on_behalf = task.get("Assigned Staff Name") or "staff"
-    by = task.get("Submitted By Name") or "Admin"
+    on_behalf = str(task.get("Assigned Staff Name") or "staff")
+    by = str(task.get("Submitted By Name") or "Admin")
     submitted = clock.fmt_time(clock.from_iso(task.get("Submitted At")))
     when_tag = "LATE" if late else "on time"
     complete = not not_submitted
     header = ("✅ <b>%s — Submitted (Complete)</b>" % messages.esc(ct) if complete
               else "⚠️ <b>%s — Submitted (Incomplete)</b>" % messages.esc(ct))
+    # "Completed by X on behalf of Y" when someone other than the assignee did it
+    # (admin/peer); otherwise just "Submitted by X".
+    if by and by.strip().lower() != on_behalf.strip().lower():
+        who_line = f"👤 Completed by <b>{messages.esc(by)}</b> on behalf of {messages.esc(on_behalf)}"
+    else:
+        who_line = f"👤 Submitted by <b>{messages.esc(by or on_behalf)}</b>"
     lines = [
         header, "",
-        f"👤 Completed by <b>{messages.esc(by)}</b> on behalf of {messages.esc(on_behalf)}",
+        who_line,
         f"🕐 Submitted: {messages.esc(submitted)} ({when_tag})",
     ]
     if not complete:
         items = "\n".join(f"   🚫 {messages.esc(n)}" for n in not_submitted)
         lines.append(f"\n<b>Not submitted ({len(not_submitted)}):</b>\n{items}")
     await notify.send_message(get_settings().staff_group_chat_id, "\n".join(lines))
+
+
+def _was_late(task: dict) -> bool:
+    """Whether the task was submitted AFTER its cutoff (uses the recorded submit
+    time, not 'now' — for re-announcing an already-submitted checklist)."""
+    cutoff = _effective_cutoff(task)
+    sub = clock.from_iso(task.get("Submitted At"))
+    return bool(cutoff and sub and sub > cutoff)
+
+
+async def reannounce(task_id: str) -> tuple[bool, str]:
+    """Re-post the completion message for an already-submitted task to the staff
+    group (e.g. for a submission made before the auto-announce existed)."""
+    task = task_repo.get(task_id)
+    if not task:
+        return False, "That checklist no longer exists."
+    if not task.get("Submitted At"):
+        return False, "This checklist hasn't been submitted yet — nothing to announce."
+    not_submitted = task_service.missing_items(task_id)
+    await _announce_admin_completion(task, not_submitted, _was_late(task))
+    return True, "Posted the completion message to the staff group. ✅"
 
 
 async def submit(
