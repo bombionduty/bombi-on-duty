@@ -156,21 +156,22 @@ async def _refresh_card(instance_id: str) -> None:
 
 # ------------------------------------------------------------- scheduling
 def due_to_post(now: datetime) -> list[dict]:
-    """Pending instances dated today whose time has arrived and not yet posted."""
-    today = now.date().isoformat()
+    """Pending instances whose window is OPEN (start time reached, cutoff not yet)
+    and that haven't been posted. Window-based so a task that runs past midnight
+    (start Sat 23:00, cutoff Sun 01:30) still posts after midnight."""
     out = []
     for inst in repo.open_instances():
         if str(inst.get("Status")) != repo.ST_PENDING:
             continue
         if str(inst.get("Group Message ID")):
             continue
-        if str(inst.get("Date")) != today:
-            continue
         try:
-            target = clock.combine(now.date(), clock.parse_time(str(inst.get("Time") or "00:00")))
+            start = clock.combine(clock.parse_date(str(inst.get("Date"))),
+                                  clock.parse_time(str(inst.get("Time") or "00:00")))
         except Exception:
-            target = clock.combine(now.date(), _time(0, 0))
-        if now >= target:
+            continue
+        cutoff = clock.from_iso(str(inst.get("Cutoff At") or ""))
+        if now >= start and (cutoff is None or now < cutoff):
             out.append(inst)
     return out
 

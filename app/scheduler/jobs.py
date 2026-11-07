@@ -179,12 +179,11 @@ async def _weekly_accountability(now, today) -> None:
 
     group_id = get_settings().staff_group_chat_id
 
-    # Generate missing occurrences for the current week (so doers can be
-    # overridden early). Marker-guarded to once/day.
-    key = f"weekly_gen::{today.isoformat()}"
-    if not markers.done(key):
-        weekly_service.ensure_instances(today)
-        markers.mark(key)
+    # Generate missing occurrences for the current week every tick (idempotent:
+    # it only adds an occurrence that doesn't exist yet). Running it every minute
+    # — not once/day — means a weekly task created mid-day still gets its card in
+    # time to post, instead of waiting until the next day's generation.
+    weekly_service.ensure_instances(today)
 
     # Post each occurrence's card at its time.
     for inst in weekly_service.due_to_post(now):
