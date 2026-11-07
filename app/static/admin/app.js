@@ -60,11 +60,15 @@ const PAGE_FN = {
     let h = `<h1>Today — ${esc(d.date)}</h1>
       <p class="sub">Status: ${esc(d.day_status || "—")} • Opener: ${esc(d.opener||"—")} • Closer: ${esc(d.closer||"—")}</p>`;
     d.tasks.forEach(t => {
+      // Admin can open & complete any not-yet-submitted (and not closed-day) task
+      // on the staff's behalf — it records the admin as the submitter.
+      const canComplete = t.task_id && !t.submitted && !t.closed;
       h += `<div class="card"><div class="row"><strong>${esc(t.checklist_type)}</strong>
         ${statusPill(t.status)}</div>
         <div class="muted">${esc(t.assigned||"—")} • ${esc(t.result||"")} ${esc(t.evidence||"")}</div>
         ${t.missing && t.missing.length ? `<div class="muted">Missing: ${t.missing.map(esc).join(", ")}</div>` : ""}
-        <div class="muted">Resolution: ${esc(t.resolution||"")}</div></div>`;
+        <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
+        ${canComplete ? `<button class="secondary" onclick="completeAsAdmin('${esc(t.task_id)}')">✍️ Complete as admin</button>` : ""}</div>`;
     });
     h += `<button class="secondary" onclick="sendEvidence('${esc(d.date)}')">📤 Send All Evidence Here</button>
       <button class="ghost" onclick="markClosed('${esc(d.date)}')">Mark This Day Closed</button>`;
@@ -432,6 +436,11 @@ async function saveWeeklyOverride(iid) {
 async function notifyAssignment(date) {
   await api(`/api/admin/notify-assignment`, { method: "POST", body: { date } });
   toast("📢 Notified staff group");
+}
+function completeAsAdmin(taskId) {
+  // Open the SAME checklist form the staff use, for this task. The admin is
+  // authorised server-side (is_admin bypass) and recorded as the submitter.
+  window.location.href = "/static/staff/index.html?startapp=" + encodeURIComponent(taskId);
 }
 async function assignTask() {
   const title = val("a_title");

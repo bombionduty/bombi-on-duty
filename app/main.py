@@ -50,6 +50,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Berry Bomb Daily Ops", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _no_cache_static(request: Request, call_next):
+    """Tell the Telegram webview NEVER to cache the Mini App HTML/JS/CSS, so a
+    redeploy shows up immediately on mobile instead of serving a stale build
+    (desktop reloaded fresh; mobile cached the old bundle)."""
+    resp = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
+
 app.include_router(miniapp_router)
 app.include_router(evidence_router)
 app.include_router(inventory_router)

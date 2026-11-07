@@ -256,7 +256,7 @@ async def whoami(caller: Caller = Depends(current_caller)):
 async def admin_today(date: Optional[str] = None, caller: Caller = Depends(current_caller)):
     _admin(caller)
     d = clock.parse_date(date) if date else clock.today()
-    sched = schedule_repo.get(d) or {}
+    eff = schedule_repo.resolve(d)  # effective (explicit override, else official)
     tasks = []
     for t in task_repo.for_date(d):
         tasks.append({
@@ -268,12 +268,14 @@ async def admin_today(date: Optional[str] = None, caller: Caller = Depends(curre
             "resolution": t.get("Resolution Status"),
             "missing": task_service.missing_items(t["Task ID"]),
             "task_id": t.get("Task ID"),
+            "submitted": bool(t.get("Submitted At")),
+            "closed": t.get("Original Submission Status") == constants.SUB_CLOSED,
         })
     return {
         "date": d.isoformat(),
-        "day_status": sched.get("Status"),
-        "opener": sched.get("Opener Name"),
-        "closer": sched.get("Closer Name"),
+        "day_status": eff.get("status"),
+        "opener": eff.get("opener_name"),
+        "closer": eff.get("closer_name"),
         "tasks": tasks,
         "recoveries": recovery.for_date(d),
     }

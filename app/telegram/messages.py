@@ -81,6 +81,22 @@ def group_card(task: dict, role_label: str) -> str:
                 f"🟢 Resolution: Recovered by Store OIC\n"
                 f"🕐 Recovered: {clock.fmt_dt(clock.from_iso(task.get('Recovered At')))}"
             )
+        # Completed LATE (by staff, peak support, or the admin on their behalf):
+        # flip the card to a submitted state and name who finished it.
+        if task.get("Submitted At"):
+            submitted = clock.fmt_time(clock.from_iso(task.get("Submitted At")))
+            result = task.get("Checklist Result")
+            result_line = ("🎉 Result: All Complete" if result == constants.RESULT_ALL_COMPLETE
+                           else "📝 Result: Issue Reported")
+            by = task.get("Submitted By Name")
+            by_line = f"\n✍️ Submitted by: {esc(by)}" if by else ""
+            return (
+                f"{_title(ct)}\n\n{_who(task, role_label)}\n"
+                f"🟠 Status: Completed late\n"
+                f"{result_line}\n"
+                f"📎 Evidence: {esc(task.get('Evidence Status'))}\n"
+                f"🕐 Submitted: {submitted}{by_line}"
+            )
         missing = task.get("_missing_text", "")
         cut = clock.fmt_time(clock.from_iso(task.get("Cutoff At")))
         return (

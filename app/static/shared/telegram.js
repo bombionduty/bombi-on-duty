@@ -17,8 +17,22 @@ function initData() {
 }
 
 function startParam() {
-  // Provided by ?startapp=... deep link.
-  return TG && TG.initDataUnsafe ? (TG.initDataUnsafe.start_param || "") : "";
+  // Which task/checklist to open, from the ?startapp=... deep link.
+  //
+  // IMPORTANT: on mobile Telegram the Mini App webview is often REUSED, and
+  // `initDataUnsafe.start_param` can keep the value from the FIRST launch of the
+  // session — so after submitting one checklist, reopening for the next would
+  // reload the previous (already-submitted) task. The launch URL hash carries
+  // `tgWebAppStartParam` for the CURRENT open, so we read that first.
+  try {
+    const hash = (window.location.hash || "").replace(/^#/, "");
+    const fromHash = new URLSearchParams(hash).get("tgWebAppStartParam");
+    if (fromHash) return fromHash;
+  } catch (e) { /* fall through */ }
+  if (TG && TG.initDataUnsafe && TG.initDataUnsafe.start_param) {
+    return TG.initDataUnsafe.start_param;
+  }
+  return "";
 }
 
 function qs(name) {

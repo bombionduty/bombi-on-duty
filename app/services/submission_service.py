@@ -177,11 +177,15 @@ async def submit(
     # Compute (don't write) — folded into the single task update below.
     ev_status = task_service.compute_evidence_status(task_id)
 
-    # Record WHO submitted (the assigned closer or the peak-support staffer who
-    # finished it) so the group/summary can show the real submitter.
+    # Record WHO submitted (the assigned closer, the peak-support staffer, or the
+    # admin completing it on behalf) so the group/summary shows the real submitter.
     submitter = staff_repo.get_by_telegram_id(tg_id)
-    submitter_name = str((submitter or {}).get("Staff Name")
-                         or task.get("Assigned Staff Name", ""))
+    if submitter:
+        submitter_name = str(submitter.get("Staff Name") or "")
+    elif staff_repo.is_admin(tg_id):
+        submitter_name = "Admin"
+    else:
+        submitter_name = str(task.get("Assigned Staff Name", ""))
 
     changes = {
         "Submitted At": clock.iso(clock.now()),
