@@ -41,7 +41,7 @@ BASE = {
     "Instance ID": "WKI1", "Weekly ID": "WK1", "Title": "General Cleaning",
     "Date": "2026-06-22", "Doer Staff ID": "D", "Doer Name": "Dina",
     "Doer Telegram User ID": "11", "Status": repo.ST_PENDING,
-    "Group Message ID": "500",
+    "Group Message ID": "500", "Requires Verification": True,  # two-step
 }
 
 
@@ -69,6 +69,22 @@ def test_doer_photo_advances_to_doer_done(monkeypatch):
     ok, note = asyncio.run(ws.attach_photo("WKI1", 11, "file_doer"))
     assert ok and store["inst"]["Status"] == repo.ST_DOER_DONE
     assert store["inst"]["Doer Photo File ID"] == "file_doer"
+
+
+def test_single_step_completes_on_doer_photo(monkeypatch):
+    # No "Requires Verification" → one photo completes it outright.
+    store = {"inst": {**BASE, "Requires Verification": False, "Status": repo.ST_PENDING}}
+    monkeypatch.setattr(ws.repo, "get_instance", lambda iid: store["inst"])
+    monkeypatch.setattr(ws.repo, "update_instance",
+                        lambda iid, ch: store.__setitem__("inst", {**store["inst"], **ch}))
+    monkeypatch.setattr(ws.staff_repo, "is_admin", lambda tg: False)
+    monkeypatch.setattr(ws.staff_repo, "get_by_telegram_id", lambda tg: DOER)
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(ws.notify, "edit_message", _noop)
+    ok, note = asyncio.run(ws.attach_photo("WKI1", 11, "file_doer"))
+    assert ok and store["inst"]["Status"] == repo.ST_VERIFIED
 
 
 def test_non_doer_cannot_do_step_one(monkeypatch):

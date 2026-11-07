@@ -144,10 +144,12 @@ HEADERS: dict[str, list[str]] = {
     WEEKLY_TASKS: [
         "Weekly ID", "Title", "Instructions", "Weekday", "Time",
         "Reminder Times", "Cutoff Time", "Default Doer Staff ID",
-        "Default Doer Name", "Active", "Created By", "Created At", "Updated At",
+        "Default Doer Name", "Requires Verification", "Active",
+        "Created By", "Created At", "Updated At",
     ],
     WEEKLY_INSTANCES: [
         "Instance ID", "Weekly ID", "Title", "Date", "Weekday",
+        "Requires Verification",
         "Doer Staff ID", "Doer Name", "Doer Telegram User ID",
         "Status", "Doer Photo File ID", "Doer Submitted At",
         "Checker Staff ID", "Checker Name", "Checker Telegram User ID",

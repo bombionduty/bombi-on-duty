@@ -477,6 +477,7 @@ async def admin_weekly(caller: Caller = Depends(current_caller)):
             "reminder_times": d.get("Reminder Times"), "cutoff_time": d.get("Cutoff Time"),
             "default_doer_staff_id": str(d.get("Default Doer Staff ID") or ""),
             "default_doer_name": d.get("Default Doer Name"),
+            "requires_verification": as_bool(d.get("Requires Verification")),
             "active": as_bool(d.get("Active")),
         })
     # This week's instances (Mon–Sun), so the admin can override a week's doer.
@@ -523,6 +524,7 @@ async def admin_weekly_save(payload: dict, caller: Caller = Depends(current_call
             "Cutoff Time": payload.get("cutoff_time", ""),
             "Default Doer Staff ID": did,
             "Default Doer Name": (doer or {}).get("Staff Name", "") if doer else "",
+            "Requires Verification": bool(payload.get("requires_verification")),
             "Active": True,
         }
         weekly_repo.update_def(payload["weekly_id"], changes)
@@ -533,7 +535,8 @@ async def admin_weekly_save(payload: dict, caller: Caller = Depends(current_call
         weekday=str(payload.get("weekday") or "").upper(), time=payload.get("time", ""),
         reminder_times=payload.get("reminder_times", ""),
         cutoff_time=payload.get("cutoff_time", ""),
-        default_doer=doer, created_by=(caller.staff or {}).get("Staff Name", ""))
+        default_doer=doer, requires_verification=bool(payload.get("requires_verification")),
+        created_by=(caller.staff or {}).get("Staff Name", ""))
     return {"ok": True}
 
 

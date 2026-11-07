@@ -187,6 +187,10 @@ const PAGE_FN = {
         <label>Reminder times (comma, e.g. 11:30,12:30)</label><input id="wt_rem_${d.weekly_id}" value="${esc(d.reminder_times||"")}"/>
         <label>Cutoff time (e.g. 13:00)</label><input id="wt_cut_${d.weekly_id}" value="${esc(d.cutoff_time||"")}"/>
         <label>Default doer</label><select id="wt_doer_${d.weekly_id}"><option value="">— none —</option>${sopts(d.default_doer_staff_id)}</select>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin-top:10px">
+          <input type="checkbox" id="wt_verify_${d.weekly_id}" style="width:auto" ${d.requires_verification?"checked":""}/>
+          Require a 2nd person to verify (two-step)</label>
+        <p class="muted" style="margin-top:4px">Off = one photo completes it. On = the doer submits, then a different staffer/OIC replies with a photo to verify.</p>
         <button class="ghost" onclick="saveWeekly('${d.weekly_id}')">💾 Save</button>
         <button class="ghost" onclick="deleteWeekly('${d.weekly_id}')">🗑 Remove</button></div>`;
     });
@@ -200,6 +204,10 @@ const PAGE_FN = {
       <label>Reminder times (comma)</label><input id="nw_rem" placeholder="11:30,12:30"/>
       <label>Cutoff time</label><input id="nw_cut" placeholder="13:00"/>
       <label>Default doer</label><select id="nw_doer"><option value="">— none —</option>${sopts("")}</select>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin-top:10px">
+        <input type="checkbox" id="nw_verify" style="width:auto"/>
+        Require a 2nd person to verify (two-step)</label>
+      <p class="muted" style="margin-top:4px">Leave OFF for a simple one-photo task. Turn ON only if you want a different person to verify the same sheet.</p>
       <button onclick="addWeekly()">➕ Add weekly task</button></div>`;
     app.innerHTML = h;
   },
@@ -451,7 +459,8 @@ async function addWeekly() {
     action: "add", title, instructions: val("nw_instr"),
     weekday: val("nw_day"), time: val("nw_time"),
     reminder_times: val("nw_rem"), cutoff_time: val("nw_cut"),
-    default_doer_staff_id: val("nw_doer") } });
+    default_doer_staff_id: val("nw_doer"),
+    requires_verification: document.getElementById("nw_verify").checked } });
   toast("✅ Weekly task added");
   go("weekly");
 }
@@ -461,7 +470,8 @@ async function saveWeekly(id) {
     title: val(`wt_title_${id}`), instructions: val(`wt_instr_${id}`),
     weekday: val(`wt_day_${id}`), time: val(`wt_time_${id}`),
     reminder_times: val(`wt_rem_${id}`), cutoff_time: val(`wt_cut_${id}`),
-    default_doer_staff_id: val(`wt_doer_${id}`) } });
+    default_doer_staff_id: val(`wt_doer_${id}`),
+    requires_verification: document.getElementById(`wt_verify_${id}`).checked } });
   toast("Saved");
 }
 async function deleteWeekly(id) {

@@ -45,6 +45,12 @@ def _doer_mention(inst: dict) -> str:
                     inst.get("Doer Telegram User ID"))
 
 
+def _requires_verify(inst: dict) -> bool:
+    """Whether this instance is two-step (doer → a different person verifies).
+    Single-step (one photo = done) is the default."""
+    return as_bool(inst.get("Requires Verification"))
+
+
 def _time12(t: str) -> str:
     try:
         hh, mm = (str(t).split(":") + ["0"])[:2]
@@ -102,6 +108,7 @@ def ensure_instances(ref: date) -> None:
             weekly_id=str(d["Weekly ID"]), title=str(d.get("Title") or ""),
             date_iso=occ.isoformat(), weekday=str(d.get("Weekday") or ""),
             doer=doer, time=str(d.get("Time") or ""), cutoff_at=cutoff_iso,
+            requires_verification=as_bool(d.get("Requires Verification")),
         )
 
 
@@ -111,12 +118,17 @@ def card(inst: dict, header: str | None = None) -> str:
     title = messages.esc(inst.get("Title"))
     when = _time12(inst.get("Time"))
     doer = _doer_mention(inst)
+    two_step = _requires_verify(inst)
     if status == repo.ST_PENDING:
         head = header or "🧾 <b>WEEKLY CHECKLIST — due today</b>"
+        if two_step:
+            return (f"{head}\n\n<b>{title}</b>\n⏰ {messages.esc(when)}\n"
+                    f"👤 Doer: {doer}\n\n"
+                    f"📸 <b>Step 1 of 2:</b> {doer}, reply to this message with a photo of "
+                    f"the completed paper checklist.")
         return (f"{head}\n\n<b>{title}</b>\n⏰ {messages.esc(when)}\n"
-                f"👤 Doer: {doer}\n\n"
-                f"📸 <b>Step 1 of 2:</b> {doer}, reply to this message with a photo of "
-                f"the completed paper checklist.")
+                f"👤 {doer}\n\n"
+                f"📸 {doer}, reply to this message with a photo to complete it.")
     if status == repo.ST_DOER_DONE:
         return (f"🧾 <b>WEEKLY CHECKLIST — needs verifying</b>\n\n<b>{title}</b>\n"
                 f"✅ Done by: {messages.esc(inst.get('Doer Name'))}\n\n"
@@ -124,9 +136,12 @@ def card(inst: dict, header: str | None = None) -> str:
                 f"OIC — write your checks on the paper, then reply here with a photo to "
                 f"verify it.")
     if status == repo.ST_VERIFIED:
-        return (f"✅ <b>Weekly checklist verified — {title}</b>\n"
-                f"👤 Done by: {messages.esc(inst.get('Doer Name'))}\n"
-                f"🔎 Verified by: {messages.esc(inst.get('Checker Name'))}")
+        if inst.get("Checker Name"):
+            return (f"✅ <b>Weekly checklist verified — {title}</b>\n"
+                    f"👤 Done by: {messages.esc(inst.get('Doer Name'))}\n"
+                    f"🔎 Verified by: {messages.esc(inst.get('Checker Name'))}")
+        return (f"✅ <b>Weekly checklist done — {title}</b>\n"
+                f"👤 Submitted by: {messages.esc(inst.get('Doer Name'))}")
     if status == repo.ST_MISSING:
         done = inst.get("Doer Name")
         state = (f"done by {messages.esc(done)}, not yet verified" if done
@@ -272,14 +287,24 @@ async def attach_photo(instance_id: str, by_tg_id: int, file_id: str) -> tuple[b
         # Only the assigned doer (or admin) provides the completion photo.
         if not is_admin and str(inst.get("Doer Telegram User ID")) != str(by_tg_id):
             return False, ""
+        if _requires_verify(inst):
+            # Two-step: doer done, now awaits a different person's verification.
+            repo.update_instance(instance_id, {
+                "Doer Photo File ID": file_id,
+                "Doer Submitted At": clock.iso(clock.now()),
+                "Status": repo.ST_DOER_DONE,
+            })
+            await _refresh_card(instance_id)
+            return True, ("📸 Step 1 done — logged as completed. Now a <b>different</b> staffer "
+                          "(or the OIC) must verify it with a photo of their checks.")
+        # Single-step: one photo completes it outright.
         repo.update_instance(instance_id, {
             "Doer Photo File ID": file_id,
             "Doer Submitted At": clock.iso(clock.now()),
-            "Status": repo.ST_DOER_DONE,
+            "Status": repo.ST_VERIFIED,
         })
         await _refresh_card(instance_id)
-        return True, ("📸 Step 1 done — logged as completed. Now a <b>different</b> staffer "
-                      "(or the OIC) must verify it with a photo of their checks.")
+        return True, "✅ Done — logged as completed. Thank you!"
 
     # status == ST_DOER_DONE → verification step.
     # The verifier must be someone OTHER than the doer (that's the accountability).

@@ -60,7 +60,8 @@ def get_def(weekly_id: str) -> dict | None:
 
 def add_def(*, title: str, instructions: str, weekday: str, time: str,
             reminder_times: str, cutoff_time: str,
-            default_doer: dict | None = None, created_by: str = "") -> dict:
+            default_doer: dict | None = None, requires_verification: bool = False,
+            created_by: str = "") -> dict:
     row = {
         "Weekly ID": gen_id("WK"),
         "Title": title,
@@ -71,6 +72,7 @@ def add_def(*, title: str, instructions: str, weekday: str, time: str,
         "Cutoff Time": cutoff_time,
         "Default Doer Staff ID": str((default_doer or {}).get("Staff ID", "")),
         "Default Doer Name": str((default_doer or {}).get("Staff Name", "")),
+        "Requires Verification": bool(requires_verification),
         "Active": True,
         "Created By": str(created_by or ""),
         "Created At": _now(),
@@ -120,13 +122,15 @@ def open_instances() -> list[dict]:
 
 
 def add_instance(*, weekly_id: str, title: str, date_iso: str, weekday: str,
-                 doer: dict | None, time: str, cutoff_at: str) -> dict:
+                 doer: dict | None, time: str, cutoff_at: str,
+                 requires_verification: bool = False) -> dict:
     row = {
         "Instance ID": gen_id("WKI"),
         "Weekly ID": weekly_id,
         "Title": title,
         "Date": date_iso,
         "Weekday": weekday.upper(),
+        "Requires Verification": bool(requires_verification),
         "Doer Staff ID": str((doer or {}).get("Staff ID", "")),
         "Doer Name": str((doer or {}).get("Staff Name", "")),
         "Doer Telegram User ID": str((doer or {}).get("Telegram User ID", "")),
