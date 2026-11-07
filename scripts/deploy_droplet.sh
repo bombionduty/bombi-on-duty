@@ -72,15 +72,24 @@ echo "==> Building and starting containers..."
 # deploy/docker-compose.yml) already prevents the routing collision instead.
 DOMAIN="$DOMAIN" PACK_DOMAIN="$PACK_DOMAIN" docker compose -f deploy/docker-compose.yml up -d --build
 
+# --- clean up after each build so repeated deploys don't fill the disk between
+#     the weekly prune. Removes the now-superseded images + build cache only;
+#     running containers (bot, packaging app, Caddy) and all volumes (evidence
+#     photos) are untouched. ---
+echo "==> Reclaiming superseded Docker images + build cache..."
+docker image prune -af >/dev/null 2>&1 || true
+docker builder prune -af >/dev/null 2>&1 || true
+echo "    disk now: $(df -h / | awk 'NR==2{print $5" used ("$4" free)"}')"
+
 # --- self-healing watchdog: restart the bot if it ever stops responding ---
 echo "==> Installing health watchdog (cron, every 3 min)..."
 chmod +x scripts/watchdog.sh 2>/dev/null || true
 WD_LINE="*/3 * * * * /opt/bombi-on-duty/scripts/watchdog.sh"
 
-# --- weekly Docker cleanup: reclaim build cache + dangling images so the disk
-#     doesn't slowly fill (Sun 04:00). Safe: never removes running apps, their
-#     images, or any volume (evidence photos live in a volume). ---
-PRUNE_LINE="0 4 * * 0 docker system prune -af >> /var/log/bombi-prune.log 2>&1; docker builder prune -af >> /var/log/bombi-prune.log 2>&1"
+# --- daily Docker cleanup: reclaim build cache + dangling images so the disk
+#     doesn't slowly fill (04:00 every day). Safe: never removes running apps,
+#     their images, or any volume (evidence photos live in a volume). ---
+PRUNE_LINE="0 4 * * * docker system prune -af >> /var/log/bombi-prune.log 2>&1; docker builder prune -af >> /var/log/bombi-prune.log 2>&1"
 
 # Install/refresh both cron lines, keeping the rest of the crontab intact.
 ( crontab -l 2>/dev/null | grep -v -e 'scripts/watchdog.sh' -e 'bombi-prune.log'; \
