@@ -83,7 +83,7 @@ const PAGE_FN = {
         ${t.missing && t.missing.length ? `<div class="muted">Missing: ${t.missing.map(esc).join(", ")}</div>` : ""}
         <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
         ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">${label}</button>` : ""}
-        ${(!t.submitted && !t.closed && t.task_id) ? `<button class="ghost" onclick="nudgeTask('${esc(t.task_id)}')">📣 Nudge group now</button>` : ""}
+        ${(!t.closed && t.task_id) ? `<button class="ghost" onclick="nudgeTask('${esc(t.task_id)}')">📣 Nudge group now</button>` : ""}
         ${t.submitted ? `<button class="ghost" onclick="reannounce('${esc(t.task_id)}')">📣 Re-announce to group</button>` : ""}</div>`;
     });
     h += `<button class="secondary" onclick="sendEvidence('${esc(d.date)}')">📤 Send All Evidence Here</button>

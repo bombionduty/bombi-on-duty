@@ -25,7 +25,11 @@ _OPEN_STATUSES = {constants.SUB_PENDING}
 
 
 def _is_incomplete(task: dict) -> bool:
-    return task.get("Original Submission Status") == constants.SUB_PENDING
+    # Pending — OR a blank status (which is how a mis-stored row can read). We
+    # deliberately include blank so such a task still gets reminders/cutoff
+    # (cutoff then rewrites its status, healing the row).
+    status = str(task.get("Original Submission Status") or "")
+    return status in ("", constants.SUB_PENDING)
 
 
 def _peak_mention(task: dict) -> str:
@@ -63,7 +67,10 @@ async def nudge_group(task_id: str) -> tuple[bool, str]:
     task = task_repo.get(task_id)
     if not task:
         return False, "That checklist no longer exists."
-    if task.get("Submitted At"):
+    # Intentionally NOT blocking on a 'Submitted At' read here — the admin asked
+    # to nudge, and that field can be unreliable on an older mis-stored row. Only
+    # a clearly on-time/late submission is skipped.
+    if task.get("Original Submission Status") in (constants.SUB_ON_TIME, constants.SUB_LATE):
         return False, "That checklist was already submitted. ✅"
     missing = task_service.missing_items(task_id)
     fresh = task_service.with_mention(task)

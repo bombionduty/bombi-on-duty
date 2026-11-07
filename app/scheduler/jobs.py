@@ -63,7 +63,9 @@ async def _tick_inner() -> None:
     open_tasks = [
         t for t in task_repo.all_unresolved()
         if str(t.get("Date")) in (today.isoformat(), yesterday.isoformat())
-        and t.get("Original Submission Status") == constants.SUB_PENDING
+        # Pending OR blank status (a mis-stored row can read blank) — so it still
+        # gets reminders/escalation/cutoff instead of being silently skipped.
+        and str(t.get("Original Submission Status") or "") in ("", constants.SUB_PENDING)
     ]
     for t in open_tasks:
         await ops_service.send_due_reminders(t)

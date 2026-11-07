@@ -41,8 +41,8 @@ def test_nudge_group_posts_for_pending(monkeypatch):
     assert ok and "@ally" in box["text"] and "Photo of store" in box["text"]
 
 
-def test_nudge_group_rejects_submitted(monkeypatch):
+def test_nudge_group_rejects_clearly_submitted(monkeypatch):
     monkeypatch.setattr(ops_service.task_repo, "get",
-                        lambda tid: {**TASK, "Submitted At": "2026-11-07T23:00:00"})
+                        lambda tid: {**TASK, "Original Submission Status": "Submitted On Time"})
     ok, msg = asyncio.run(ops_service.nudge_group("TASK-1"))
     assert ok is False and "already submitted" in msg.lower()

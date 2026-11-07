@@ -93,10 +93,18 @@ class SheetTable:
         self._phys = current
 
     def _order(self) -> list[str]:
-        """The authoritative column order for writes: the live sheet's header row
-        (falls back to the schema list if it hasn't been read yet)."""
+        """The authoritative column order for writes: the live sheet's header row.
+
+        NEVER falls back to the schema order while the sheet is reachable — a
+        mismatch there silently corrupts every cell after an out-of-order column.
+        If the physical header row isn't cached yet (or a transient error left it
+        unset), re-fetch it directly here so a one-off startup hiccup can't pin us
+        to the wrong order for the rest of the session."""
         if self._phys is None:
-            _ = self.ws  # triggers _ensure_headers, which sets self._phys
+            try:
+                self._phys = self.ws.row_values(1)
+            except Exception:
+                log.exception("Could not read header row for %r", self.tab_name)
         return self._phys or list(self.headers)
 
     def _invalidate(self) -> None:
