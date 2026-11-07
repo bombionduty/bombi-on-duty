@@ -164,6 +164,7 @@ async def submit_task(task_id: str, payload: dict, caller: Caller = Depends(curr
             task, caller.tg_id,
             completion_mode=payload.get("completion_mode", "all_complete"),
             issues=payload.get("issues", []),
+            skipped_items=payload.get("skipped_items", []),
         )
     except submission_service.AuthError as e:
         raise HTTPException(400, e.message)

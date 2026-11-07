@@ -68,16 +68,17 @@ const PAGE_FN = {
       h += `<div class="card"><p class="sub">No checklists have been released for this date yet.</p></div>`;
     }
     d.tasks.forEach(t => {
-      // Admin can open & complete any not-yet-submitted (and not closed-day) task
-      // on the staff's behalf — works before OR after cutoff. Records the admin
-      // as the submitter.
-      const canComplete = t.task_id && !t.submitted && !t.closed;
+      // Admin can open & complete ANY task (missed or not) on the staff's behalf —
+      // works before OR after cutoff. Shown for every real task except a
+      // closed-day placeholder. The button label reflects whether it's done yet.
+      const canComplete = t.task_id && !t.closed;
+      const label = t.submitted ? "✍️ Re-open / edit as admin" : "✍️ Complete as admin";
       h += `<div class="card"><div class="row"><strong>${esc(t.checklist_type)}</strong>
         ${statusPill(t.status)}</div>
         <div class="muted">${esc(t.assigned||"—")} • ${esc(t.result||"")} ${esc(t.evidence||"")}</div>
         ${t.missing && t.missing.length ? `<div class="muted">Missing: ${t.missing.map(esc).join(", ")}</div>` : ""}
         <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
-        ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">✍️ Complete as admin</button>` : ""}</div>`;
+        ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">${label}</button>` : ""}</div>`;
     });
     h += `<button class="secondary" onclick="sendEvidence('${esc(d.date)}')">📤 Send All Evidence Here</button>
       <button class="ghost" onclick="markClosed('${esc(d.date)}')">Mark This Day Closed</button>`;

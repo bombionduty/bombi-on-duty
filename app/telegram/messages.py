@@ -53,6 +53,27 @@ def group_card(task: dict, role_label: str) -> str:
     status = task.get("Original Submission Status", constants.SUB_PENDING)
     head = f"{_title(ct)}\n\n{_who(task, role_label)}\n🕐 Due by: {cutoff}"
 
+    # Admin completed it on the staff's behalf — show complete/incomplete clearly,
+    # naming exactly which items were not submitted.
+    if task.get("Resolution Status") == constants.RES_RESOLVED_ADMIN and task.get("Submitted At"):
+        submitted = clock.fmt_time(clock.from_iso(task.get("Submitted At")))
+        by = task.get("Submitted By Name") or "Admin"
+        missing = task.get("_missing_text", "")
+        if missing:
+            return (
+                f"{_title(ct)}\n\n{_who(task, role_label)}\n"
+                f"⚠️ <b>Submitted by {esc(by)} — Incomplete</b>\n"
+                f"🚫 Not submitted: {esc(missing)}\n"
+                f"📎 Evidence: {esc(task.get('Evidence Status'))}\n"
+                f"🕐 Submitted: {submitted}"
+            )
+        return (
+            f"{_title(ct)}\n\n{_who(task, role_label)}\n"
+            f"✅ <b>Submitted by {esc(by)} — Complete</b>\n"
+            f"📎 Evidence: {esc(task.get('Evidence Status'))}\n"
+            f"🕐 Submitted: {submitted}"
+        )
+
     if status == constants.SUB_PENDING and not task.get("Started At"):
         return head + "\n🟡 Status: Pending\n\n👉 Tap below to complete this checklist."
     if status == constants.SUB_PENDING and task.get("Started At"):

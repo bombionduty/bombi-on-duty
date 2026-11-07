@@ -10,6 +10,7 @@ let STATE = {
   payload: null,
   attestationMode: null, // "all_complete" | "issue"
   issues: {},            // task_item_id -> details
+  skipped: {},           // task_item_id -> true (admin: marked NOT submitted)
   generalNote: "",
 };
 
@@ -96,11 +97,14 @@ function proofCard(it) {
   const pill = done ? `<span class="pill ok">Received</span>` : `<span class="pill warn">Required</span>`;
   let body = "";
   if (it.type === "Live Camera Photo") {
+    // NOTE: the gallery input has NO `capture` attribute, so "Upload from Gallery"
+    // opens the photo library (admin uploading staff-sent photos), while
+    // "Take Photo Now" uses the live camera via getUserMedia.
     body = `
       <div id="cam_${it.task_item_id}"></div>
       <button class="secondary" data-cam="${it.task_item_id}">📷 Take Photo Now</button>
-      <button class="ghost" data-gallery="${it.task_item_id}">Upload from Gallery</button>
-      <input type="file" accept="image/*" capture="environment" style="display:none" data-fileinput="${it.task_item_id}" />`;
+      <button class="ghost" data-gallery="${it.task_item_id}">🖼️ Upload from Gallery</button>
+      <input type="file" accept="image/*" style="display:none" data-fileinput="${it.task_item_id}" />`;
   } else if (it.type === "Gallery Screenshot") {
     body = `
       <button class="secondary" data-gallery="${it.task_item_id}">Upload Screenshot</button>
@@ -112,11 +116,15 @@ function proofCard(it) {
     body = `<input type="text" data-text="${it.task_item_id}" value="${esc(it.response||"")}" />
       <button class="ghost" data-savetext="${it.task_item_id}">Save</button>`;
   }
+  // Admin-only: mark an item as NOT submitted (staff couldn't provide the proof).
+  const adminSkip = STATE.payload.is_admin
+    ? `<button class="ghost" data-skip="${it.task_item_id}">🚫 Mark as NOT submitted</button>` : "";
   return `<div class="card" id="card_${it.task_item_id}">
     <div class="row"><strong>${esc(it.name)}</strong>${pill}</div>
     ${it.instructions ? `<p class="muted">${esc(it.instructions)}</p>` : ""}
     <div id="proofstate_${it.task_item_id}"></div>
     ${body}
+    ${adminSkip}
   </div>`;
 }
 
@@ -136,7 +144,21 @@ function wireProof(it) {
   }
   const saveBtn = document.querySelector(`[data-savetext="${id}"]`);
   if (saveBtn) saveBtn.onclick = () => saveText(it);
+  const skipBtn = document.querySelector(`[data-skip="${id}"]`);
+  if (skipBtn) skipBtn.onclick = () => toggleSkip(it, skipBtn);
   if (it.completed && it.evidence && it.evidence.length) showProofDone(it, it.evidence[0]);
+}
+
+// Admin marks/unmarks a proof item as "not submitted" (staff had no proof).
+function toggleSkip(it, btn) {
+  const on = !STATE.skipped[it.task_item_id];
+  STATE.skipped[it.task_item_id] = on;
+  btn.textContent = on ? "↩︎ Undo — not submitted" : "🚫 Mark as NOT submitted";
+  btn.className = on ? "secondary" : "ghost";
+  setProofState(it, on
+    ? `<span class="pill bad">Will be recorded as NOT submitted</span>`
+    : "");
+  refreshSubmit();
 }
 
 /* ----------------------------------------------------------- LIVE CAMERA */
@@ -269,9 +291,12 @@ function collectIssues() {
 
 /* ----------------------------------------------------------- SUBMIT */
 function requiredProofDone() {
+  // Admin may account for each required proof item by EITHER uploading it OR
+  // explicitly marking it "not submitted" — so a missed checklist can still be
+  // recorded. Staff must upload every required item.
   return STATE.payload.items
     .filter(i => i.required && PROOF_TYPES.includes(i.type))
-    .every(i => i.completed);
+    .every(i => i.completed || (STATE.payload.is_admin && STATE.skipped[i.task_item_id]));
 }
 
 function attestationOk() {
@@ -291,9 +316,10 @@ function refreshSubmit() {
 async function submitTask() {
   const issues = STATE.attestationMode === "issue" ? collectIssues() : [];
   if (STATE.generalNote) issues.push({ task_item_id: "general", details: STATE.generalNote });
+  const skipped_items = Object.keys(STATE.skipped).filter(id => STATE.skipped[id]);
   try {
     const r = await api(`/api/task/${STATE.taskId}/submit`, { method: "POST",
-      body: { completion_mode: STATE.attestationMode, issues } });
+      body: { completion_mode: STATE.attestationMode, issues, skipped_items } });
     document.getElementById("app").innerHTML =
       `<div class="card"><h1>✅ Submitted</h1><p>Status: ${esc(r.status)} — ${esc(r.result)}</p>
        <p class="muted">You can close this window.</p></div>`;

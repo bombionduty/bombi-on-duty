@@ -141,14 +141,36 @@ async def submit(
     *,
     completion_mode: str,            # "all_complete" | "issue"
     issues: list[dict] | None = None,  # [{task_item_id, details}]
+    skipped_items: list | None = None,  # admin: item ids explicitly NOT submitted
 ) -> dict:
-    """Final submit (spec section 16). Validates required proof is present."""
+    """Final submit (spec section 16). Validates required proof is present.
+
+    The admin may complete a MISSED checklist on a staff member's behalf: they can
+    mark specific proof items as "not submitted" (e.g. the staff couldn't send a
+    photo) and still submit. Such a submission is recorded as resolved by admin,
+    and the group card names exactly which items were not submitted.
+    """
     task = authorize_open(task, tg_id)
     task_id = task["Task ID"]
+    is_admin = staff_repo.is_admin(tg_id)
+    skipped = {str(s) for s in (skipped_items or [])}
 
-    # 1) Required proof / entry must be complete.
+    # Admin: record explicitly-skipped proof items as NOT submitted, so a missed
+    # checklist can be closed out with a clear record of what's missing.
+    if is_admin and skipped:
+        sk: dict[str, dict] = {}
+        for it in task_repo.items_for(task_id):
+            tiid = str(it.get("Task Item ID"))
+            if tiid in skipped:
+                sk[tiid] = {"Completed": False, "Response": "NOT SUBMITTED",
+                            "Missing At Cutoff": True}
+        if sk:
+            task_repo.update_items(sk)
+
+    # 1) Required proof must be complete — EXCEPT the admin may leave items that
+    #    were explicitly marked not-submitted.
     missing = task_service.missing_items(task_id)
-    if missing:
+    if missing and not is_admin:
         raise AuthError("Missing required proof: " + ", ".join(missing))
 
     # 2) Resolve attestation outcome — batched into ONE Sheets write (fast).
@@ -169,8 +191,14 @@ async def submit(
     if item_changes:
         task_repo.update_items(item_changes)
 
-    result = constants.RESULT_ISSUE if (completion_mode == "issue" and issues) \
-        else constants.RESULT_ALL_COMPLETE
+    # Any required proof still missing after the above = items not submitted.
+    not_submitted = task_service.missing_items(task_id)
+    if is_admin:
+        result = (constants.RESULT_ALL_COMPLETE if not not_submitted
+                  else constants.RESULT_ISSUE)
+    else:
+        result = constants.RESULT_ISSUE if (completion_mode == "issue" and issues) \
+            else constants.RESULT_ALL_COMPLETE
 
     late = _is_late(task)
     sub_status = constants.SUB_LATE if late else constants.SUB_ON_TIME
@@ -180,10 +208,10 @@ async def submit(
     # Record WHO submitted (the assigned closer, the peak-support staffer, or the
     # admin completing it on behalf) so the group/summary shows the real submitter.
     submitter = staff_repo.get_by_telegram_id(tg_id)
-    if submitter:
+    if submitter and not is_admin:
         submitter_name = str(submitter.get("Staff Name") or "")
-    elif staff_repo.is_admin(tg_id):
-        submitter_name = "Admin"
+    elif is_admin:
+        submitter_name = str((submitter or {}).get("Staff Name") or "Admin")
     else:
         submitter_name = str(task.get("Assigned Staff Name", ""))
 
@@ -193,17 +221,22 @@ async def submit(
         "Checklist Result": result,
         "Evidence Status": ev_status,
         "Submitted By Name": submitter_name,
-        "Resolution Status": (constants.RES_LATE_BY_STAFF if late
-                              else constants.RES_NONE),
+        # An admin completion is always recorded as resolved-by-admin (so the group
+        # card shows "Submitted by Admin — Complete/Incomplete").
+        "Resolution Status": (constants.RES_RESOLVED_ADMIN if is_admin else
+                              (constants.RES_LATE_BY_STAFF if late
+                               else constants.RES_NONE)),
     }
     # If this task had already passed cutoff (Not Submitted recorded), preserve
-    # that event and mark resolution as completed-late (spec section 18).
+    # that event and mark resolution accordingly (spec section 18).
     if task.get("Original Submission Status") == constants.SUB_NOT_SUBMITTED:
-        changes["Resolution Status"] = constants.RES_LATE_BY_STAFF
+        changes["Resolution Status"] = (constants.RES_RESOLVED_ADMIN if is_admin
+                                        else constants.RES_LATE_BY_STAFF)
         changes.pop("Original Submission Status")  # keep Not Submitted on record
 
     task_repo.update(task_id, changes)
-    audit.log(tg_id, task.get("Assigned Staff Name", ""), constants.ROLE_STAFF,
+    actor_role = constants.ROLE_ADMIN if is_admin else constants.ROLE_STAFF
+    audit.log(tg_id, submitter_name, actor_role,
               "submit", "Task", task_id, original_staff_id=task.get("Assigned Staff ID", ""))
 
     await task_service.refresh_group_card(task_id)

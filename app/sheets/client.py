@@ -46,6 +46,13 @@ class SheetTable:
         self.book = book
         self.tab_name = tab_name
         self.headers = schema.HEADERS[tab_name]
+        # The LIVE sheet's actual header row (row 1). This — NOT the schema list —
+        # is the source of truth for column POSITIONS, because reads
+        # (get_all_records) are keyed by the physical row. If a new schema column
+        # was appended at the end of an existing sheet while the schema lists it in
+        # the middle, ordering writes by the schema list would misalign every cell
+        # after that point. Ordering by the physical row keeps writes == reads.
+        self._phys: list[str] | None = None
         self._ws = None
         self._cache: list[dict] | None = None
         self._cache_at = 0.0
@@ -65,20 +72,32 @@ class SheetTable:
                     title=self.tab_name, rows=1000, cols=len(self.headers))
                 self._ws.update(values=[self.headers], range_name="A1")
                 self._ws.freeze(rows=1)
+                self._phys = list(self.headers)
         return self._ws
 
     def _ensure_headers(self) -> None:
         """Append any schema columns the sheet doesn't have yet (at the end,
-        never reordering/removing), so adding a column needs no setup_sheet run."""
+        never reordering/removing), so adding a column needs no setup_sheet run.
+        Also records the sheet's PHYSICAL header order for aligned writes."""
         try:
             current = self._ws.row_values(1)
         except Exception:
+            self._phys = None
             return
         missing = [h for h in self.headers if h not in current]
         if missing:
             log.info("Adding new column(s) to %r: %s", self.tab_name, missing)
             self._ws.update(values=[current + missing], range_name="A1")
             self._invalidate()
+            current = current + missing
+        self._phys = current
+
+    def _order(self) -> list[str]:
+        """The authoritative column order for writes: the live sheet's header row
+        (falls back to the schema list if it hasn't been read yet)."""
+        if self._phys is None:
+            _ = self.ws  # triggers _ensure_headers, which sets self._phys
+        return self._phys or list(self.headers)
 
     def _invalidate(self) -> None:
         self._cache = None
@@ -114,7 +133,8 @@ class SheetTable:
 
     def append(self, row: dict) -> dict:
         with self._lock:
-            ordered = [self._cell(row.get(h, "")) for h in self.headers]
+            order = self._order()  # physical column order (matches reads)
+            ordered = [self._cell(row.get(h, "")) for h in order]
             self.ws.append_row(ordered, value_input_option="USER_ENTERED")
             self._invalidate()
             return row
@@ -123,7 +143,8 @@ class SheetTable:
         if not rows:
             return
         with self._lock:
-            matrix = [[self._cell(r.get(h, "")) for h in self.headers] for r in rows]
+            order = self._order()
+            matrix = [[self._cell(r.get(h, "")) for h in order] for r in rows]
             self.ws.append_rows(matrix, value_input_option="USER_ENTERED")
             self._invalidate()
 
@@ -137,6 +158,7 @@ class SheetTable:
         if not changes_by_key:
             return 0
         with self._lock:
+            order = self._order()
             keys = {str(k) for k in changes_by_key}
             records = self.ws.get_all_records(expected_headers=self.headers)
             cells = []
@@ -146,9 +168,9 @@ class SheetTable:
                     continue
                 sheet_row = idx + 2
                 for ck, cv in changes_by_key[key].items():
-                    if ck not in self.headers:
+                    if ck not in order:
                         raise KeyError(f"{ck!r} not a column of {self.tab_name}")
-                    col_idx = self.headers.index(ck) + 1
+                    col_idx = order.index(ck) + 1
                     cells.append(gspread.Cell(sheet_row, col_idx, self._cell(cv)))
             if cells:
                 self.ws.update_cells(cells, value_input_option="USER_ENTERED")
@@ -169,11 +191,12 @@ class SheetTable:
             return False
 
     def _apply_changes(self, sheet_row: int, changes: dict) -> None:
+        order = self._order()
         cells = []
         for key, val in changes.items():
-            if key not in self.headers:
+            if key not in order:
                 raise KeyError(f"{key!r} not a column of {self.tab_name}")
-            col_idx = self.headers.index(key) + 1
+            col_idx = order.index(key) + 1
             cells.append(gspread.Cell(sheet_row, col_idx, self._cell(val)))
         if cells:
             self.ws.update_cells(cells, value_input_option="USER_ENTERED")

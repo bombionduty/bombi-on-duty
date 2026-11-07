@@ -39,6 +39,32 @@ def test_still_missing_card_unchanged_when_not_completed():
     assert "Trash out" in card
 
 
+def test_admin_complete_card():
+    t = _base(**{
+        "Original Submission Status": constants.SUB_ON_TIME,
+        "Resolution Status": constants.RES_RESOLVED_ADMIN,
+        "Submitted At": "2026-06-23T01:15:00",
+        "Submitted By Name": "Admin",
+    })
+    card = messages.group_card(t, "closer")
+    assert "Submitted by Admin — Complete" in card
+    assert "✅" in card
+
+
+def test_admin_incomplete_card_lists_not_submitted_items():
+    t = _base(**{
+        "Original Submission Status": constants.SUB_NOT_SUBMITTED,
+        "Resolution Status": constants.RES_RESOLVED_ADMIN,
+        "Submitted At": "2026-06-23T01:15:00",
+        "Submitted By Name": "Admin",
+        "_missing_text": "Photo of sales, Mop water emptied",
+    })
+    card = messages.group_card(t, "closer")
+    assert "Submitted by Admin — Incomplete" in card
+    assert "Not submitted: Photo of sales, Mop water emptied" in card
+    assert "⚠️" in card
+
+
 def test_on_time_card_names_submitter():
     t = _base(**{
         "Original Submission Status": constants.SUB_ON_TIME,
