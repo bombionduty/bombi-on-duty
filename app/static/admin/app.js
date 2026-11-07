@@ -83,6 +83,7 @@ const PAGE_FN = {
         ${t.missing && t.missing.length ? `<div class="muted">Missing: ${t.missing.map(esc).join(", ")}</div>` : ""}
         <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
         ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">${label}</button>` : ""}
+        ${(!t.submitted && !t.closed && t.task_id) ? `<button class="ghost" onclick="nudgeTask('${esc(t.task_id)}')">📣 Nudge group now</button>` : ""}
         ${t.submitted ? `<button class="ghost" onclick="reannounce('${esc(t.task_id)}')">📣 Re-announce to group</button>` : ""}</div>`;
     });
     h += `<button class="secondary" onclick="sendEvidence('${esc(d.date)}')">📤 Send All Evidence Here</button>
@@ -594,6 +595,12 @@ async function reannounce(taskId) {
     const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/reannounce`, { method: "POST" });
     toast(r.message || "Posted to the group ✅");
   } catch (e) { toast(e.message || "Could not post to the group"); }
+}
+async function nudgeTask(taskId) {
+  try {
+    const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/nudge`, { method: "POST" });
+    toast(r.message || "📣 Nudged the group");
+  } catch (e) { toast(e.message || "Could not nudge the group"); }
 }
 function completeAsAdmin(taskId) {
   // Open the SAME checklist form the staff use, for this task. The admin is

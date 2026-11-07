@@ -46,6 +46,39 @@ def _peak_mention(task: dict) -> str:
     return _html.escape(str(name))
 
 
+async def _notify_admin_too(target, text: str, reply_markup=None) -> None:
+    """Send the same alert to the admin as well, unless the admin IS the target
+    (so OIC escalations/cutoffs reach the owner even on the OIC's day off)."""
+    admin = get_settings().admin_telegram_user_id
+    if admin and str(admin) != str(target):
+        try:
+            await notify.send_message(admin, text, reply_markup=reply_markup)
+        except Exception:
+            log.exception("admin copy of alert failed")
+
+
+async def nudge_group(task_id: str) -> tuple[bool, str]:
+    """Manually post a reminder to the group for a still-pending task (admin
+    'nudge' button). Works before or after cutoff."""
+    task = task_repo.get(task_id)
+    if not task:
+        return False, "That checklist no longer exists."
+    if task.get("Submitted At"):
+        return False, "That checklist was already submitted. ✅"
+    missing = task_service.missing_items(task_id)
+    fresh = task_service.with_mention(task)
+    mention = fresh.get("_assignee_mention") or task.get("Assigned Staff Name")
+    peak = _peak_mention(task)
+    if peak:
+        mention = f"{mention} / {peak}"
+    group = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
+    sent = await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
+    if sent:
+        from app.repositories import reminder_repo
+        reminder_repo.log_reminder(task_id, group, sent.message_id)
+    return True, "📣 Posted a reminder to the group."
+
+
 async def send_due_reminders(task: dict) -> None:
     if not _is_incomplete(task):
         return
@@ -55,8 +88,9 @@ async def send_due_reminders(task: dict) -> None:
         return
     now = clock.now()
     missing = task_service.missing_items(task["Task ID"])
-    if not missing and task_service.attestation_done(task["Task ID"]):
-        return
+    # NOTE: we deliberately do NOT skip when nothing is "missing" — a task that is
+    # still PENDING (not submitted) must keep getting its scheduled nudges, even if
+    # everything is filled in, because the staff still has to tap Submit.
     for i, when in enumerate(timing.reminders_at):
         if now < when:
             continue
@@ -110,13 +144,13 @@ async def escalate_if_due(task: dict) -> None:
     # Escalate to the OIC — or the admin if the task is assigned to the OIC.
     target, _, _ = staff_repo.oversight_target(task.get("Assigned Telegram User ID"))
     missing = task_service.missing_items(task["Task ID"])
-    sent = await notify.send_message(
-        target,
-        messages.oic_alert(task_service.with_mention(task), missing, after_cutoff=False),
-        reply_markup=keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=False),
-    )
+    alert = messages.oic_alert(task_service.with_mention(task), missing, after_cutoff=False)
+    markup = keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=False)
+    sent = await notify.send_message(target, alert, reply_markup=markup)
     if sent:
         task_repo.update(task["Task ID"], {"OIC Alert Message ID": sent.message_id})
+    # Also send to the admin (so it's covered even on the OIC's day off).
+    await _notify_admin_too(target, alert, markup)
     markers.mark(key)
 
 
@@ -164,11 +198,11 @@ async def cutoff_if_due(task: dict) -> None:
             )
     # Cutoff alert to the OIC — or the admin if the task is assigned to the OIC.
     target, _, _ = staff_repo.oversight_target(task.get("Assigned Telegram User ID"))
-    sent = await notify.send_message(
-        target,
-        messages.oic_alert(fresh, missing, after_cutoff=True),
-        reply_markup=keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=True),
-    )
+    alert = messages.oic_alert(fresh, missing, after_cutoff=True)
+    markup = keyboards.oic_followup_buttons(task["Task ID"], allow_recovery=True)
+    sent = await notify.send_message(target, alert, reply_markup=markup)
     if sent:
         task_repo.update(task["Task ID"], {"OIC Alert Message ID": sent.message_id})
+    # Also send to the admin (covered even on the OIC's day off).
+    await _notify_admin_too(target, alert, markup)
     markers.mark(key)

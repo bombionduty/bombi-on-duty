@@ -164,10 +164,16 @@ def oic_resolved(task: dict, recovered_by_name: str) -> str:
 def staff_reminder(task: dict, missing: list[str]) -> str:
     ct = task["Checklist Type"]
     cut = clock.fmt_time(clock.from_iso(task.get("Cutoff At")))
-    lines = "\n".join(f"   📌 {esc(m)}" for m in missing) or "   📌 (not started yet)"
+    if missing:
+        body = "Still to do:\n" + "\n".join(f"   📌 {esc(m)}" for m in missing)
+    elif task.get("Started At"):
+        # Everything filled in — they just haven't pressed Submit.
+        body = "Everything looks filled in — <b>tap Submit to finish.</b>"
+    else:
+        body = "You haven't started it yet — please open it and complete it."
     return (
         f"🔔 <b>Friendly reminder</b> — your {CHECK_EMOJI.get(ct, '📋')} "
         f"<b>{esc(ct)}</b> is still pending.\n\n"
-        f"Still to do:\n{lines}\n\n"
+        f"{body}\n\n"
         f"🕐 Due by {cut}. Tap <b>/mytask</b> if you closed the form."
     )

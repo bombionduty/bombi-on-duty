@@ -464,6 +464,17 @@ async def admin_reannounce(task_id: str, caller: Caller = Depends(current_caller
     return {"ok": True, "message": msg}
 
 
+@router.post("/admin/task/{task_id}/nudge")
+async def admin_nudge(task_id: str, caller: Caller = Depends(current_caller)):
+    """Manually nudge the group about a still-pending checklist (before/after cutoff)."""
+    _admin(caller)
+    from app.services import ops_service
+    ok, msg = await ops_service.nudge_group(task_id)
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"ok": True, "message": msg}
+
+
 @router.get("/admin/weekly")
 async def admin_weekly(caller: Caller = Depends(current_caller)):
     """Weekly accountability library + this week's occurrences (Feature 3)."""
