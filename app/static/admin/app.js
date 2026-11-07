@@ -4,15 +4,19 @@
  */
 const PAGES = [
   ["today", "Today"], ["schedule", "Schedule"], ["assignments", "Tasks"],
-  ["weekly", "Weekly"], ["staff", "Staff"], ["checklists", "Checklists"],
-  ["timing", "Timing"], ["evidence", "Evidence"], ["recoveries", "Recoveries"],
-  ["reviews", "OIC Reviews"], ["announcements", "Announce"], ["reports", "Reports"],
-  ["settings", "Settings"], ["test", "Test"],
+  ["weekly", "Weekly"], ["reminders", "Reminders"], ["staff", "Staff"],
+  ["checklists", "Checklists"], ["timing", "Timing"], ["evidence", "Evidence"],
+  ["recoveries", "Recoveries"], ["reviews", "OIC Reviews"], ["announcements", "Announce"],
+  ["reports", "Reports"], ["settings", "Settings"], ["test", "Test"],
 ];
 
 // The Store OIC gets a restricted view: Schedule only (to reassign staff when
 // the admin is unavailable). The admin sees everything.
 let ME = { is_admin: true, is_oic: false, role: "Admin" };
+let REM_ROLES = ["opener", "closer", "both", "peak", "group"];
+let REM_WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const ROLE_LABEL = { opener: "Opener", closer: "Closer", both: "Both opener & closer",
+                     peak: "Peak support", group: "Whole group (no tag)" };
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -198,6 +202,33 @@ const PAGE_FN = {
       <label>Default doer</label><select id="nw_doer"><option value="">— none —</option>${sopts("")}</select>
       <button onclick="addWeekly()">➕ Add weekly task</button></div>`;
     app.innerHTML = h;
+  },
+
+  /* -------------------------------------------------------- REMINDERS */
+  async reminders(app) {
+    const data = await api(`/api/admin/reminders`);
+    REM_ROLES = data.roles;         // ["opener","closer","both","peak","group"]
+    REM_WEEKDAYS = data.weekdays;   // ["MON",...]
+    let h = `<h1>Shift Reminders</h1>
+      <div class="card" style="background:#f4f8ff">
+        <p class="sub">Nudges posted to the staff group at set times (no photo, nothing to
+          submit). Each time slot tags whoever's on shift for that role — the bot knows from
+          the schedule. Use it for the Daily Shop Checklist (3/5/7/9 PM) or anything else.</p>
+        ${data.reminders.length ? "" : `<button class="secondary" onclick="seedShopChecklist()">✨ Create the Daily Shop Checklist reminder (3/5/7/9 PM)</button>`}
+      </div>`;
+    data.reminders.forEach(r => h += reminderCard(r));
+    // Add-new card.
+    h += `<div class="card"><h2>➕ Add a reminder</h2>
+      <label>Title</label><input id="nr_title" placeholder="e.g. Daily Shop Checklist"/>
+      <label>Message</label><input id="nr_msg" placeholder="Please fill in the shop checklist for this hour."/>
+      <label>Days</label>${daysPicker("nr")}
+      <label>Times &amp; who to tag</label><div id="slots_nr"></div>
+      <button class="ghost" onclick="addSlot('nr')">➕ Add a time</button>
+      <button onclick="addReminder()">➕ Create reminder</button></div>`;
+    app.innerHTML = h;
+    // Render existing slots + seed one blank slot for the new-reminder form.
+    data.reminders.forEach(r => (r.slots || []).forEach(s => addSlot(r.reminder_id, s.time, s.role)));
+    addSlot("nr", "15:00", "opener");
   },
 
   /* -------------------------------------------------- ASSIGNMENTS (Tasks) */
@@ -443,6 +474,98 @@ async function saveWeeklyOverride(iid) {
   await api(`/api/admin/weekly/override`, { method: "POST", body: {
     instance_id: iid, doer_staff_id: val(`wi_${iid}`) } });
   toast("Doer updated for this week");
+}
+
+/* -------------------------------------------------------- REMINDERS UI */
+function daysPicker(prefix, selected) {
+  const sel = selected && selected.length ? selected : REM_WEEKDAYS;  // empty = every day
+  const names = { MON:"Mon", TUE:"Tue", WED:"Wed", THU:"Thu", FRI:"Fri", SAT:"Sat", SUN:"Sun" };
+  return `<div class="days">${REM_WEEKDAYS.map(d =>
+    `<label style="display:inline-block;width:auto;margin-right:10px;font-weight:500">
+       <input type="checkbox" data-day="${prefix}" value="${d}" style="width:auto" ${sel.includes(d)?"checked":""}/> ${names[d]}</label>`).join("")}</div>`;
+}
+function roleSelect(role) {
+  return `<select data-slotrole style="width:auto;display:inline-block">${REM_ROLES.map(r =>
+    `<option value="${r}" ${r===role?"selected":""}>${esc(ROLE_LABEL[r]||r)}</option>`).join("")}</select>`;
+}
+function addSlot(prefix, time, role) {
+  const box = document.getElementById(`slots_${prefix}`);
+  if (!box) return;
+  const row = document.createElement("div");
+  row.className = "row"; row.style.marginTop = "6px";
+  row.innerHTML = `<input type="time" data-slottime value="${esc(time||"")}" style="width:auto;display:inline-block"/>
+    ${roleSelect(role||"both")}
+    <button class="ghost" style="width:auto;padding:8px 12px;margin:0" onclick="this.parentNode.remove()">✕</button>`;
+  box.appendChild(row);
+}
+function collectSlots(prefix) {
+  const box = document.getElementById(`slots_${prefix}`);
+  const out = [];
+  if (box) box.querySelectorAll(".row").forEach(r => {
+    const time = r.querySelector("[data-slottime]").value.trim();
+    const role = r.querySelector("[data-slotrole]").value;
+    if (time) out.push({ time, role });
+  });
+  return out;
+}
+function collectDays(prefix) {
+  const out = [];
+  document.querySelectorAll(`[data-day="${prefix}"]`).forEach(cb => { if (cb.checked) out.push(cb.value); });
+  return out;
+}
+function reminderCard(r) {
+  const p = r.reminder_id;
+  return `<div class="card">
+    <div class="row"><strong>⏰ ${esc(r.title||"Reminder")}</strong>
+      <button class="ghost" style="width:auto;padding:8px 12px;margin:0"
+        onclick="toggleReminder('${p}', ${!r.active})">${r.active ? "🟢 On" : "⚪️ Off"}</button></div>
+    <label>Title</label><input id="rt_${p}" value="${esc(r.title||"")}"/>
+    <label>Message</label><input id="rm_${p}" value="${esc(r.message||"")}"/>
+    <label>Days</label>${daysPicker(p, r.days)}
+    <label>Times &amp; who to tag</label><div id="slots_${p}"></div>
+    <button class="ghost" onclick="addSlot('${p}')">➕ Add a time</button>
+    <button class="ghost" onclick="saveReminder('${p}')">💾 Save</button>
+    <button class="ghost" onclick="deleteReminder('${p}')">🗑 Remove</button>
+  </div>`;
+}
+async function addReminder() {
+  const title = val("nr_title");
+  if (!title) { toast("Enter a title."); return; }
+  const slots = collectSlots("nr");
+  if (!slots.length) { toast("Add at least one time."); return; }
+  await api(`/api/admin/reminders`, { method: "POST", body: {
+    action: "add", title, message: val("nr_msg"),
+    days: collectDays("nr"), slots, active: true } });
+  toast("✅ Reminder created");
+  go("reminders");
+}
+async function saveReminder(id) {
+  const slots = collectSlots(id);
+  if (!slots.length) { toast("Add at least one time."); return; }
+  await api(`/api/admin/reminders`, { method: "POST", body: {
+    action: "update", reminder_id: id, title: val(`rt_${id}`), message: val(`rm_${id}`),
+    days: collectDays(id), slots } });  // on/off unchanged (use the toggle button)
+  toast("Saved");
+}
+async function toggleReminder(id, active) {
+  await api(`/api/admin/reminders`, { method: "POST", body: { action: "toggle", reminder_id: id, active } });
+  go("reminders");
+}
+async function deleteReminder(id) {
+  if (!confirm("Remove this reminder?")) return;
+  await api(`/api/admin/reminders`, { method: "POST", body: { action: "delete", reminder_id: id } });
+  toast("Removed");
+  go("reminders");
+}
+async function seedShopChecklist() {
+  await api(`/api/admin/reminders`, { method: "POST", body: {
+    action: "add", title: "Daily Shop Checklist",
+    message: "Reminder: please fill in the Daily Shop Checklist for this hour. 📋",
+    days: [], active: true,
+    slots: [{ time: "15:00", role: "opener" }, { time: "17:00", role: "closer" },
+            { time: "19:00", role: "opener" }, { time: "21:00", role: "closer" }] } });
+  toast("✅ Daily Shop Checklist reminder created");
+  go("reminders");
 }
 async function notifyAssignment(date) {
   await api(`/api/admin/notify-assignment`, { method: "POST", body: { date } });

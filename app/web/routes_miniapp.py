@@ -18,6 +18,7 @@ from app.repositories import (
     checklist_repo,
     evidence_repo,
     schedule_repo,
+    shift_reminder_repo,
     staff_repo,
     task_repo,
     timing_repo,
@@ -403,6 +404,54 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
             reposted += 1
 
     return {"ok": True, "notified": True, "checklists_reposted": reposted}
+
+
+@router.get("/admin/reminders")
+async def admin_reminders(caller: Caller = Depends(current_caller)):
+    """Shift reminders (pure nudges) the admin manages."""
+    _admin(caller)
+    out = []
+    for r in shift_reminder_repo.all_rows():
+        out.append({
+            "reminder_id": r.get("Reminder ID"),
+            "title": r.get("Title"), "message": r.get("Message"),
+            "days": shift_reminder_repo.parse_days(r.get("Days")),
+            "slots": shift_reminder_repo.parse_slots(r.get("Slots")),
+            "active": as_bool(r.get("Active")),
+        })
+    return {"reminders": out, "roles": list(shift_reminder_repo.ROLES),
+            "weekdays": list(constants.WEEKDAYS)}
+
+
+@router.post("/admin/reminders")
+async def admin_reminders_save(payload: dict, caller: Caller = Depends(current_caller)):
+    """Add / update / delete / toggle a shift reminder."""
+    _admin(caller)
+    action = payload.get("action", "add")
+    rid = payload.get("reminder_id")
+    if action == "delete":
+        shift_reminder_repo.delete(rid)
+        return {"ok": True}
+    if action == "toggle":
+        shift_reminder_repo.update(rid, {"Active": bool(payload.get("active"))})
+        return {"ok": True}
+
+    days = ",".join(payload.get("days") or [])
+    slots = shift_reminder_repo.encode_slots(payload.get("slots") or [])
+    if action == "update":
+        changes = {
+            "Title": payload.get("title", ""), "Message": payload.get("message", ""),
+            "Days": days, "Slots": slots,
+        }
+        if "active" in payload:  # only change on/off when explicitly sent
+            changes["Active"] = bool(payload["active"])
+        shift_reminder_repo.update(rid, changes)
+        return {"ok": True}
+    shift_reminder_repo.add(
+        title=payload.get("title", ""), message=payload.get("message", ""),
+        days=days, slots=slots, active=bool(payload.get("active", True)),
+        created_by=(caller.staff or {}).get("Staff Name", ""))
+    return {"ok": True}
 
 
 @router.post("/admin/task/{task_id}/reannounce")

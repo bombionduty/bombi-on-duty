@@ -32,6 +32,9 @@ TASK_REMINDERS = "Task Reminders"
 WEEKLY_TASKS = "Weekly Tasks"          # the permanent library of weekly items
 WEEKLY_INSTANCES = "Weekly Instances"  # one row per week's occurrence
 
+# ---- Shift reminders (pure nudges, no photo/submission) ----
+SHIFT_REMINDERS = "Shift Reminders"
+
 # ---- Owner Mode (Bombi On Call) — completely separate from staff data ----
 ADMIN_TASKS = "AdminTasks"
 ADMIN_RECURRING = "AdminRecurring"
@@ -151,6 +154,12 @@ HEADERS: dict[str, list[str]] = {
         "Checker Photo File ID", "Checker Verified At",
         "Group Message ID", "Time", "Cutoff At", "Missing At Cutoff",
         "Created At", "Updated At",
+    ],
+    # Slots encodes "HH:MM=role;HH:MM=role" (role ∈ opener/closer/both/peak/group).
+    # Days encodes "MON,TUE,…" (empty = every day).
+    SHIFT_REMINDERS: [
+        "Reminder ID", "Title", "Message", "Days", "Slots", "Active",
+        "Created By", "Created At", "Updated At",
     ],
 
     # ---- Owner Mode tabs (separate from all staff data above) ----

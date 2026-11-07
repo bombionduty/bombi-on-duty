@@ -77,6 +77,9 @@ async def _tick_inner() -> None:
     #     occurrences, post at their time, remind, and flag missed-at-cutoff.
     await _weekly_accountability(now, today)
 
+    # 3d) Shift reminders (pure nudges to whoever's on shift — no photo).
+    await _shift_reminders(now)
+
     # 4) Daily summary (covers the PREVIOUS operating date) at configured time.
     summary_time = settings_store.get(constants.SETTING_DAILY_SUMMARY_TIME)  # "00:05"
     if _hhmm(now) == summary_time:
@@ -201,6 +204,19 @@ async def _weekly_accountability(now, today) -> None:
     # Cutoff sweep (marks Missing + alerts the OIC; the status change itself is
     # the idempotency guard — a Missing instance is no longer "open").
     await weekly_service.cutoff_if_due(now)
+
+
+async def _shift_reminders(now) -> None:
+    """Fire any due shift-reminder slots (marker-guarded so each fires once)."""
+    from app.services import shift_reminder_service
+    for ev in shift_reminder_service.due(now):
+        if markers.done(ev["key"]):
+            continue
+        try:
+            await shift_reminder_service.fire(ev["reminder"], ev["slot"], now.date())
+        except Exception:
+            log.exception("Shift reminder failed: %s", ev.get("key"))
+        markers.mark(ev["key"])
 
 
 async def _owner_brief(now) -> None:
