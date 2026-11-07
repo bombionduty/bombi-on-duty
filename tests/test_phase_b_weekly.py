@@ -114,6 +114,19 @@ def test_non_doer_cannot_do_step_one(monkeypatch):
     assert ok is False and store["inst"]["Status"] == repo.ST_PENDING
 
 
+def test_two_step_submit_notifies_oic_to_verify(monkeypatch):
+    store = _wire(monkeypatch, repo.ST_PENDING)  # BASE requires verification
+    sent = {}
+    monkeypatch.setattr(ws.staff_repo, "oversight_target", lambda tg: (999, "Angel", True))
+
+    async def _send(chat, text, **k):
+        sent["chat"], sent["text"] = chat, text
+    monkeypatch.setattr(ws.notify, "send_message", _send)
+    asyncio.run(ws.attach_photo("WKI1", 11, "file_doer"))
+    assert store["inst"]["Status"] == repo.ST_DOER_DONE
+    assert sent["chat"] == 999 and "needs" in sent["text"].lower()
+
+
 def test_checker_verifies(monkeypatch):
     store = _wire(monkeypatch, repo.ST_DOER_DONE)
     ok, note = asyncio.run(ws.attach_photo("WKI1", 22, "file_check"))

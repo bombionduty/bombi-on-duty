@@ -306,6 +306,18 @@ async def attach_photo(instance_id: str, by_tg_id: int, file_id: str) -> tuple[b
                 "Status": repo.ST_DOER_DONE,
             })
             await _refresh_card(instance_id)
+            # Actively notify the OIC/admin that it needs verifying (the group card
+            # edit alone is silent).
+            try:
+                target, _, _ = staff_repo.oversight_target(inst.get("Doer Telegram User ID"))
+                await notify.send_message(
+                    target,
+                    f"📸 <b>{messages.esc(inst.get('Doer Name'))}</b> submitted the weekly "
+                    f"checklist <b>{messages.esc(inst.get('Title'))}</b> and it needs "
+                    f"verifying.\n\n👉 Check the paper, then reply to the group card with a "
+                    f"photo of your checks (or have the next shift do it).")
+            except Exception:
+                log.exception("verify-needed notice failed for %s", instance_id)
             return True, ("📸 Step 1 done — logged as completed. Now a <b>different</b> staffer "
                           "(or the OIC) must verify it with a photo of their checks.")
         # Single-step: one photo completes it outright.
