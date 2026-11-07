@@ -80,11 +80,19 @@ def _cutoff_at(occ: date, time_str: str, cutoff_str: str) -> str:
 def ensure_instances(ref: date) -> None:
     """Make sure this week's occurrence row exists for every active weekly task,
     so the admin can override its doer any time during the week before it posts."""
+    now = clock.now()
     for d in repo.active_defs():
         occ = _this_week_occurrence(str(d.get("Weekday") or ""), ref)
         if not occ:
             continue
         if repo.instance_for(str(d["Weekly ID"]), occ.isoformat()):
+            continue
+        cutoff_iso = _cutoff_at(occ, str(d.get("Time") or ""), str(d.get("Cutoff Time") or ""))
+        # Don't backfill an occurrence whose window ALREADY closed before this task
+        # existed (e.g. a task created mid-week for an earlier weekday) — otherwise
+        # it would be created and instantly flagged "missed".
+        cut = clock.from_iso(cutoff_iso)
+        if cut and cut < now:
             continue
         doer = None
         did = str(d.get("Default Doer Staff ID") or "")
@@ -93,8 +101,7 @@ def ensure_instances(ref: date) -> None:
         repo.add_instance(
             weekly_id=str(d["Weekly ID"]), title=str(d.get("Title") or ""),
             date_iso=occ.isoformat(), weekday=str(d.get("Weekday") or ""),
-            doer=doer, time=str(d.get("Time") or ""),
-            cutoff_at=_cutoff_at(occ, str(d.get("Time") or ""), str(d.get("Cutoff Time") or "")),
+            doer=doer, time=str(d.get("Time") or ""), cutoff_at=cutoff_iso,
         )
 
 
@@ -198,12 +205,21 @@ async def cutoff_if_due(now: datetime) -> list[dict]:
         repo.update_instance(inst["Instance ID"],
                              {"Status": repo.ST_MISSING, "Missing At Cutoff": True})
         await _refresh_card(inst["Instance ID"])
-        # Alert the OIC/admin.
+        # State of the miss (done-but-unverified vs not done at all).
+        done = inst.get("Doer Name")
+        state = (f"done by {messages.esc(done)} but NOT verified" if done
+                 else "not done")
+        # Announce to the staff GROUP so everyone sees it.
+        await notify.send_message(
+            get_settings().staff_group_chat_id,
+            f"🔴 <b>Weekly checklist missed</b>\n\n<b>{messages.esc(inst.get('Title'))}</b> "
+            f"({messages.esc(inst.get('Date'))}) was {state} by cutoff.")
+        # Also alert the OIC/admin privately.
         target, _, _ = staff_repo.oversight_target(inst.get("Doer Telegram User ID"))
         await notify.send_message(
             target,
             f"🔴 <b>Weekly checklist missed</b>\n\n<b>{messages.esc(inst.get('Title'))}</b> "
-            f"({messages.esc(inst.get('Date'))}) was not fully verified by cutoff.")
+            f"({messages.esc(inst.get('Date'))}) was {state} by cutoff.")
         flagged.append(inst)
     return flagged
 
