@@ -130,9 +130,47 @@ def save_text_response(task_item_id: str, response: str) -> None:
     })
 
 
-def _is_late(task: dict) -> bool:
+def _effective_cutoff(task: dict):
+    """The task's cutoff datetime. Falls back to the timing config (keyed by
+    checklist type + date, which live in un-corruptible early columns) so a task
+    row written before the column-alignment fix still classifies late correctly."""
     cutoff = clock.from_iso(task.get("Cutoff At"))
+    if cutoff:
+        return cutoff
+    try:
+        from app.repositories import timing_repo
+        d = clock.parse_date(str(task.get("Date")))
+        tm = timing_repo.get_timing(str(task.get("Checklist Type")), d)
+        return tm.cutoff_at if tm else None
+    except Exception:
+        return None
+
+
+def _is_late(task: dict) -> bool:
+    cutoff = _effective_cutoff(task)
     return bool(cutoff and clock.now() > cutoff)
+
+
+async def _announce_admin_completion(task: dict, not_submitted: list[str], late: bool) -> None:
+    """Post a clear admin-completion card to the staff group."""
+    from app.telegram import messages
+    ct = task.get("Checklist Type")
+    on_behalf = task.get("Assigned Staff Name") or "staff"
+    by = task.get("Submitted By Name") or "Admin"
+    submitted = clock.fmt_time(clock.from_iso(task.get("Submitted At")))
+    when_tag = "LATE" if late else "on time"
+    complete = not not_submitted
+    header = ("✅ <b>%s — Submitted (Complete)</b>" % messages.esc(ct) if complete
+              else "⚠️ <b>%s — Submitted (Incomplete)</b>" % messages.esc(ct))
+    lines = [
+        header, "",
+        f"👤 Completed by <b>{messages.esc(by)}</b> on behalf of {messages.esc(on_behalf)}",
+        f"🕐 Submitted: {messages.esc(submitted)} ({when_tag})",
+    ]
+    if not complete:
+        items = "\n".join(f"   🚫 {messages.esc(n)}" for n in not_submitted)
+        lines.append(f"\n<b>Not submitted ({len(not_submitted)}):</b>\n{items}")
+    await notify.send_message(get_settings().staff_group_chat_id, "\n".join(lines))
 
 
 async def submit(
@@ -247,6 +285,16 @@ async def submit(
     except Exception:
         log.exception("Could not clear reminders for %s", task_id)
     fresh = task_repo.get(task_id)
+
+    # Admin completed it on a staff member's behalf: ALWAYS post a fresh, explicit
+    # message to the staff group (editing the old card isn't enough — and may be
+    # impossible if the card id was lost), naming who did it, complete/incomplete,
+    # late/on-time, and exactly which items were not submitted.
+    if is_admin:
+        try:
+            await _announce_admin_completion(fresh, not_submitted, late)
+        except Exception:
+            log.exception("Admin-completion group announcement failed for %s", task_id)
 
     # Instant notifications: admin summary + OIC review package (evidence + buttons).
     from app.repositories.misc_repo import settings_store
