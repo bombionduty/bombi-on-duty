@@ -87,6 +87,26 @@ def test_single_step_completes_on_doer_photo(monkeypatch):
     assert ok and store["inst"]["Status"] == repo.ST_VERIFIED
 
 
+def test_reconcile_heals_stuck_single_step(monkeypatch):
+    # A card left at 'needs verifying' for a now-single-photo task flips to done.
+    stuck = {**BASE, "Instance ID": "WKI9", "Status": repo.ST_DOER_DONE,
+             "Requires Verification": False}
+    twostep = {**BASE, "Instance ID": "WKI8", "Status": repo.ST_DOER_DONE,
+               "Requires Verification": True}
+    saved = {}
+    monkeypatch.setattr(ws.repo, "open_instances", lambda: [stuck, twostep])
+    monkeypatch.setattr(ws.repo, "update_instance",
+                        lambda iid, ch: saved.__setitem__(iid, ch))
+    monkeypatch.setattr(ws.repo, "get_instance", lambda iid: {"Group Message ID": ""})
+
+    async def _noop(*a, **k):
+        return None
+    monkeypatch.setattr(ws.notify, "edit_message", _noop)
+    asyncio.run(ws.reconcile_single_step())
+    assert saved.get("WKI9", {}).get("Status") == repo.ST_VERIFIED  # single-step healed
+    assert "WKI8" not in saved                                      # two-step untouched
+
+
 def test_non_doer_cannot_do_step_one(monkeypatch):
     store = _wire(monkeypatch, repo.ST_PENDING)
     ok, note = asyncio.run(ws.attach_photo("WKI1", 22, "file_x"))

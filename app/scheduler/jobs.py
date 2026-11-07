@@ -185,6 +185,10 @@ async def _weekly_accountability(now, today) -> None:
     # time to post, instead of waiting until the next day's generation.
     weekly_service.ensure_instances(today)
 
+    # Heal any 'needs verifying' card for a task that's now single-photo (so an
+    # already-posted Step-2 message flips to done instead of confusing staff).
+    await weekly_service.reconcile_single_step()
+
     # Post each occurrence's card at its time.
     for inst in weekly_service.due_to_post(now):
         await weekly_service.post_card(inst)

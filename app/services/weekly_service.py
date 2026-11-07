@@ -211,6 +211,17 @@ def reminders_due(now: datetime) -> list[dict]:
     return out
 
 
+async def reconcile_single_step() -> None:
+    """Heal any instance stuck at 'needs verifying' whose task is now SINGLE-step
+    (one photo = done) — e.g. an in-flight two-step card left over when the task
+    was switched to single-photo. Marks it done and refreshes the group card, so
+    the already-posted 'Step 2: reply to verify' message updates itself."""
+    for inst in repo.open_instances():
+        if str(inst.get("Status")) == repo.ST_DOER_DONE and not _requires_verify(inst):
+            repo.update_instance(inst["Instance ID"], {"Status": repo.ST_VERIFIED})
+            await _refresh_card(inst["Instance ID"])
+
+
 async def cutoff_if_due(now: datetime) -> list[dict]:
     """Flag any open instance whose cutoff has passed as Missing + alert the OIC."""
     flagged = []
