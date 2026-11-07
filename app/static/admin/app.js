@@ -51,24 +51,33 @@ async function go(page) {
   catch (e) { showError(e.message); app.innerHTML = ""; }
 }
 
-const today = () => qs("date") || new Date().toISOString().slice(0, 10);
+let ADMIN_DATE = null;  // which operating date the Today tab is viewing
+const today = () => ADMIN_DATE || qs("date") || new Date().toISOString().slice(0, 10);
 
 const PAGE_FN = {
   /* -------------------------------------------------------------- TODAY */
   async today(app) {
     const d = await api(`/api/admin/today?date=${today()}`);
+    const todayStr = new Date().toISOString().slice(0, 10);
     let h = `<h1>Today — ${esc(d.date)}</h1>
+      <div class="card"><label>View / complete checklists for date</label>
+        <input type="date" value="${esc(d.date)}" onchange="setAdminDate(this.value)"/>
+        ${d.date !== todayStr ? `<button class="ghost" onclick="setAdminDate('${todayStr}')">↩︎ Back to today</button>` : ""}</div>
       <p class="sub">Status: ${esc(d.day_status || "—")} • Opener: ${esc(d.opener||"—")} • Closer: ${esc(d.closer||"—")}</p>`;
+    if (!d.tasks.length) {
+      h += `<div class="card"><p class="sub">No checklists have been released for this date yet.</p></div>`;
+    }
     d.tasks.forEach(t => {
       // Admin can open & complete any not-yet-submitted (and not closed-day) task
-      // on the staff's behalf — it records the admin as the submitter.
+      // on the staff's behalf — works before OR after cutoff. Records the admin
+      // as the submitter.
       const canComplete = t.task_id && !t.submitted && !t.closed;
       h += `<div class="card"><div class="row"><strong>${esc(t.checklist_type)}</strong>
         ${statusPill(t.status)}</div>
         <div class="muted">${esc(t.assigned||"—")} • ${esc(t.result||"")} ${esc(t.evidence||"")}</div>
         ${t.missing && t.missing.length ? `<div class="muted">Missing: ${t.missing.map(esc).join(", ")}</div>` : ""}
         <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
-        ${canComplete ? `<button class="secondary" onclick="completeAsAdmin('${esc(t.task_id)}')">✍️ Complete as admin</button>` : ""}</div>`;
+        ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">✍️ Complete as admin</button>` : ""}</div>`;
     });
     h += `<button class="secondary" onclick="sendEvidence('${esc(d.date)}')">📤 Send All Evidence Here</button>
       <button class="ghost" onclick="markClosed('${esc(d.date)}')">Mark This Day Closed</button>`;
@@ -436,6 +445,10 @@ async function saveWeeklyOverride(iid) {
 async function notifyAssignment(date) {
   await api(`/api/admin/notify-assignment`, { method: "POST", body: { date } });
   toast("📢 Notified staff group");
+}
+function setAdminDate(v) {
+  ADMIN_DATE = v || null;
+  go("today");
 }
 function completeAsAdmin(taskId) {
   // Open the SAME checklist form the staff use, for this task. The admin is
