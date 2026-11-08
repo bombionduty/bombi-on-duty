@@ -439,6 +439,7 @@ const PAGE_FN = {
     app.innerHTML = `<h1>Test Mode</h1>
       <button class="secondary" onclick="runTest('release')">Release Today's Tasks</button>
       <button class="secondary" onclick="runTest('summary')">Send Today's Summary</button>
+      <button class="secondary" onclick="runTest('goodmorning')">Post "Good Morning" Recap to Group</button>
       <button class="secondary" onclick="runTest('weekly')">Send Weekly Report</button>`;
   },
 };

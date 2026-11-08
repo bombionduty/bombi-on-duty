@@ -43,13 +43,16 @@ async def tick() -> None:
         log.exception("Scheduler tick failed")
 
 
-async def _safe(name: str, coro) -> None:
+async def _safe(name: str, coro) -> bool:
     """Run a scheduler step; log + swallow any error so ONE failing step (or one
-    bad record) can never abort the rest of the tick."""
+    bad record) can never abort the rest of the tick. Returns True on success so
+    callers only mark a once-a-day job 'done' when it actually succeeded."""
     try:
         await coro
+        return True
     except Exception:
         log.exception("Scheduler step %r failed", name)
+        return False
 
 
 def _due_once(now, hhmm: str, key: str, window_min: int = 30) -> bool:
@@ -70,8 +73,8 @@ async def _tick_inner() -> None:
 
     # 1) Daily pre-check (06:00 Manila).
     if _due_once(now, "06:00", f"precheck::{today.isoformat()}"):
-        await _safe("precheck", schedule_service.run_precheck(today))
-        markers.mark(f"precheck::{today.isoformat()}")
+        if await _safe("precheck", schedule_service.run_precheck(today)):
+            markers.mark(f"precheck::{today.isoformat()}")
 
     # 2) Release due tasks for today.
     await _safe("release", task_service.release_due_tasks(today))
@@ -99,14 +102,14 @@ async def _tick_inner() -> None:
     # 4) Daily summary (covers the PREVIOUS operating date).
     summary_time = settings_store.get(constants.SETTING_DAILY_SUMMARY_TIME)  # "00:05"
     if _due_once(now, summary_time, f"summary::{yesterday.isoformat()}"):
-        await _safe("daily_summary", summary_service.send_daily_summary(yesterday))
-        markers.mark(f"summary::{yesterday.isoformat()}")
+        if await _safe("daily_summary", summary_service.send_daily_summary(yesterday)):
+            markers.mark(f"summary::{yesterday.isoformat()}")
 
     # 4b) "Good morning" group recap of the previous day (default 11:00).
     gm_time = settings_store.get(constants.SETTING_GOOD_MORNING_TIME)
     if _due_once(now, gm_time, f"goodmorning::{today.isoformat()}"):
-        await _safe("good_morning", summary_service.send_good_morning(yesterday))
-        markers.mark(f"goodmorning::{today.isoformat()}")
+        if await _safe("good_morning", summary_service.send_good_morning(yesterday)):
+            markers.mark(f"goodmorning::{today.isoformat()}")
 
     # 4c) Daily Owner Brief (Zite inventory).
     await _safe("owner_brief", _owner_brief(now))
@@ -115,13 +118,13 @@ async def _tick_inner() -> None:
     if _due_once(now, "03:30", f"evidence_purge::{today.isoformat()}"):
         from app.services import evidence_service
         days = settings_store.get_int(constants.SETTING_EVIDENCE_RETENTION_DAYS)
-        await _safe("evidence_purge", _async(evidence_service.purge_old, days))
-        markers.mark(f"evidence_purge::{today.isoformat()}")
+        if await _safe("evidence_purge", _async(evidence_service.purge_old, days)):
+            markers.mark(f"evidence_purge::{today.isoformat()}")
 
     # 4e) Daily low-disk warning (07:00).
     if _due_once(now, "07:00", f"diskcheck::{today.isoformat()}"):
-        await _safe("diskcheck", _disk_warn())
-        markers.mark(f"diskcheck::{today.isoformat()}")
+        if await _safe("diskcheck", _disk_warn()):
+            markers.mark(f"diskcheck::{today.isoformat()}")
 
     # 5) Weekly schedule reminder (e.g. "SUN 18:00").
     await _safe("weekly_sched", _maybe_weekly(

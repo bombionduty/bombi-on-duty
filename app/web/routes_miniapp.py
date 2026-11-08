@@ -810,12 +810,16 @@ async def admin_settings_save(payload: dict, caller: Caller = Depends(current_ca
 @router.post("/admin/test/{what}")
 async def admin_test(what: str, caller: Caller = Depends(current_caller)):
     _admin(caller)
+    from datetime import timedelta
     if what == "summary":
         await summary_service.send_daily_summary(clock.today())
     elif what == "release":
         await task_service.release_due_tasks(clock.today())
     elif what == "weekly":
         await report_service.send_weekly_report()
+    elif what == "goodmorning":
+        # Post the "Good Morning" group recap of YESTERDAY, on demand.
+        await summary_service.send_good_morning(clock.today() - timedelta(days=1))
     else:
         raise HTTPException(400, "Unknown test action.")
     return {"ok": True}
