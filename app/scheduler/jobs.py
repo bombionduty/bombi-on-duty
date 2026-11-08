@@ -43,94 +43,95 @@ async def tick() -> None:
         log.exception("Scheduler tick failed")
 
 
+async def _safe(name: str, coro) -> None:
+    """Run a scheduler step; log + swallow any error so ONE failing step (or one
+    bad record) can never abort the rest of the tick."""
+    try:
+        await coro
+    except Exception:
+        log.exception("Scheduler step %r failed", name)
+
+
+def _due_once(now, hhmm: str, key: str, window_min: int = 30) -> bool:
+    """True if we're within `window_min` AFTER the target time and this key hasn't
+    fired today. The window (vs an exact-minute match) means a bot restart around
+    the target minute — e.g. during a deploy — won't skip the job for the day."""
+    try:
+        target = clock.combine(now.date(), clock.parse_time(str(hhmm)))
+    except Exception:
+        return False
+    return target <= now < target + timedelta(minutes=window_min) and not markers.done(key)
+
+
 async def _tick_inner() -> None:
     now = clock.now()
     today = now.date()
     yesterday = today - timedelta(days=1)
 
-    # 1) Daily pre-check (once/day at 06:00 Manila).
-    if _hhmm(now) == "06:00":
-        key = f"precheck::{today.isoformat()}"
-        if not markers.done(key):
-            await schedule_service.run_precheck(today)
-            markers.mark(key)
+    # 1) Daily pre-check (06:00 Manila).
+    if _due_once(now, "06:00", f"precheck::{today.isoformat()}"):
+        await _safe("precheck", schedule_service.run_precheck(today))
+        markers.mark(f"precheck::{today.isoformat()}")
 
     # 2) Release due tasks for today.
-    await task_service.release_due_tasks(today)
+    await _safe("release", task_service.release_due_tasks(today))
 
     # 3) Per-task lifecycle for any still-open task (today + yesterday in case a
-    #    cutoff crosses midnight).
-    open_tasks = [
-        t for t in task_repo.all_unresolved()
-        if str(t.get("Date")) in (today.isoformat(), yesterday.isoformat())
-        # Pending OR blank status (a mis-stored row can read blank) — so it still
-        # gets reminders/escalation/cutoff instead of being silently skipped.
-        and str(t.get("Original Submission Status") or "") in ("", constants.SUB_PENDING)
-    ]
+    #    cutoff crosses midnight). Each task is isolated so one bad row can't stop
+    #    the others — or anything later in the tick.
+    try:
+        open_tasks = [
+            t for t in task_repo.all_unresolved()
+            if str(t.get("Date")) in (today.isoformat(), yesterday.isoformat())
+            and str(t.get("Original Submission Status") or "") in ("", constants.SUB_PENDING)
+        ]
+    except Exception:
+        log.exception("Could not list open tasks")
+        open_tasks = []
     for t in open_tasks:
-        await ops_service.send_due_reminders(t)
-        await ops_service.escalate_if_due(t)
-        await ops_service.cutoff_if_due(t)
+        await _safe(f"ops:{t.get('Task ID')}", _process_task(t))
 
-    # 3b) Staff assignment reminders (ad-hoc tasks): due-time + every-2h nudges.
-    await _assignment_reminders(now)
+    # 3b–3d) Ad-hoc assignment reminders, weekly checklists, shift reminders.
+    await _safe("assignment_reminders", _assignment_reminders(now))
+    await _safe("weekly", _weekly_accountability(now, today))
+    await _safe("shift_reminders", _shift_reminders(now))
 
-    # 3c) Weekly accountability checklists (Feature 3): generate this week's
-    #     occurrences, post at their time, remind, and flag missed-at-cutoff.
-    await _weekly_accountability(now, today)
-
-    # 3d) Shift reminders (pure nudges to whoever's on shift — no photo).
-    await _shift_reminders(now)
-
-    # 4) Daily summary (covers the PREVIOUS operating date) at configured time.
+    # 4) Daily summary (covers the PREVIOUS operating date).
     summary_time = settings_store.get(constants.SETTING_DAILY_SUMMARY_TIME)  # "00:05"
-    if _hhmm(now) == summary_time:
-        key = f"summary::{yesterday.isoformat()}"
-        if not markers.done(key):
-            await summary_service.send_daily_summary(yesterday)
-            markers.mark(key)
+    if _due_once(now, summary_time, f"summary::{yesterday.isoformat()}"):
+        await _safe("daily_summary", summary_service.send_daily_summary(yesterday))
+        markers.mark(f"summary::{yesterday.isoformat()}")
 
     # 4b) "Good morning" group recap of the previous day (default 11:00).
     gm_time = settings_store.get(constants.SETTING_GOOD_MORNING_TIME)
-    if _hhmm(now) == gm_time:
-        key = f"goodmorning::{today.isoformat()}"
-        if not markers.done(key):
-            await summary_service.send_good_morning(yesterday)
-            markers.mark(key)
+    if _due_once(now, gm_time, f"goodmorning::{today.isoformat()}"):
+        await _safe("good_morning", summary_service.send_good_morning(yesterday))
+        markers.mark(f"goodmorning::{today.isoformat()}")
 
-    # 4c) Daily Owner Brief (Zite inventory) — trigger the external report.
-    await _owner_brief(now)
+    # 4c) Daily Owner Brief (Zite inventory).
+    await _safe("owner_brief", _owner_brief(now))
 
-    # 4d) Nightly evidence cleanup — delete photo files older than the retention
-    #     window (default 50 days) to keep the droplet's disk from filling up.
-    if _hhmm(now) == "03:30":
-        key = f"evidence_purge::{today.isoformat()}"
-        if not markers.done(key):
-            from app.services import evidence_service
-            days = settings_store.get_int(constants.SETTING_EVIDENCE_RETENTION_DAYS)
-            evidence_service.purge_old(days)
-            markers.mark(key)
+    # 4d) Nightly evidence cleanup (03:30).
+    if _due_once(now, "03:30", f"evidence_purge::{today.isoformat()}"):
+        from app.services import evidence_service
+        days = settings_store.get_int(constants.SETTING_EVIDENCE_RETENTION_DAYS)
+        await _safe("evidence_purge", _async(evidence_service.purge_old, days))
+        markers.mark(f"evidence_purge::{today.isoformat()}")
 
-    # 4e) Daily low-disk warning (07:00) — alert the admin BEFORE the droplet
-    #     fills up (a full disk is what broke deploys/uploads before).
-    if _hhmm(now) == "07:00":
-        key = f"diskcheck::{today.isoformat()}"
-        if not markers.done(key):
-            from app.services import system_service
-            r = system_service.disk_report()
-            if r["percent"] >= system_service.WARN_PERCENT:
-                from app.config import get_settings
-                await notify.send_message(get_settings().admin_telegram_user_id,
-                                          system_service.format_report(r))
-            markers.mark(key)
+    # 4e) Daily low-disk warning (07:00).
+    if _due_once(now, "07:00", f"diskcheck::{today.isoformat()}"):
+        await _safe("diskcheck", _disk_warn())
+        markers.mark(f"diskcheck::{today.isoformat()}")
 
     # 5) Weekly schedule reminder (e.g. "SUN 18:00").
-    await _maybe_weekly(now, settings_store.get(constants.SETTING_WEEKLY_SCHEDULE_REMINDER),
-                        "weekly_sched", schedule_service.send_weekly_schedule_reminder)
+    await _safe("weekly_sched", _maybe_weekly(
+        now, settings_store.get(constants.SETTING_WEEKLY_SCHEDULE_REMINDER),
+        "weekly_sched", schedule_service.send_weekly_schedule_reminder))
 
     # 6) Weekly accountability report (e.g. "MON 09:00").
-    await _maybe_weekly(now, settings_store.get(constants.SETTING_WEEKLY_REPORT_DAY),
-                        "weekly_report", report_service.send_weekly_report)
+    await _safe("weekly_report", _maybe_weekly(
+        now, settings_store.get(constants.SETTING_WEEKLY_REPORT_DAY),
+        "weekly_report", report_service.send_weekly_report))
 
     # 7) Owner Mode tick — runs LAST and in its OWN try/except so any Owner Mode
     #    error can never affect the staff steps above (which already completed).
@@ -139,6 +140,27 @@ async def _tick_inner() -> None:
         await owner_scheduler.owner_tick()
     except Exception:
         log.exception("Owner Mode tick failed (staff scheduler unaffected)")
+
+
+async def _process_task(t: dict) -> None:
+    """Reminders + escalation + cutoff for one open task."""
+    await ops_service.send_due_reminders(t)
+    await ops_service.escalate_if_due(t)
+    await ops_service.cutoff_if_due(t)
+
+
+async def _async(fn, *args):
+    """Await a synchronous function so it can run under _safe()."""
+    fn(*args)
+
+
+async def _disk_warn() -> None:
+    from app.config import get_settings
+    from app.services import system_service
+    r = system_service.disk_report()
+    if r["percent"] >= system_service.WARN_PERCENT:
+        await notify.send_message(get_settings().admin_telegram_user_id,
+                                  system_service.format_report(r))
 
 
 async def _assignment_reminders(now) -> None:
@@ -254,15 +276,14 @@ async def _owner_brief(now) -> None:
 
 
 async def _maybe_weekly(now, spec: str, name: str, coro) -> None:
-    """spec like 'SUN 18:00'."""
+    """spec like 'SUN 18:00'. Window-tolerant (survives a restart near the time)."""
     try:
         day, hhmm = spec.split()
     except (ValueError, AttributeError):
         return
-    if now.strftime("%a").upper() != day.upper() or _hhmm(now) != hhmm:
+    if now.strftime("%a").upper() != day.upper():
         return
     key = f"{name}::{now.date().isoformat()}"
-    if markers.done(key):
-        return
-    await coro()
-    markers.mark(key)
+    if _due_once(now, hhmm, key):
+        await coro()
+        markers.mark(key)
