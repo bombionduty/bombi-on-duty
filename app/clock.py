@@ -70,7 +70,12 @@ def iso(dt: datetime | None) -> str:
 def from_iso(value: str | None) -> datetime | None:
     if not value:
         return None
-    dt = datetime.fromisoformat(value)
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        # A mis-stored row can put non-ISO junk in a timestamp cell. Treat it as
+        # "no value" instead of crashing every reminder/card/summary that reads it.
+        return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=_TZ)
     return dt

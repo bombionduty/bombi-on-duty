@@ -72,16 +72,20 @@ async def nudge_group(task_id: str) -> tuple[bool, str]:
     # a clearly on-time/late submission is skipped.
     if task.get("Original Submission Status") in (constants.SUB_ON_TIME, constants.SUB_LATE):
         return False, "That checklist was already submitted. ✅"
-    missing = task_service.missing_items(task_id)
-    fresh = task_service.with_mention(task)
-    mention = fresh.get("_assignee_mention") or task.get("Assigned Staff Name")
-    peak = _peak_mention(task)
-    if peak:
-        mention = f"{mention} / {peak}"
-    # Always use the CONFIGURED staff group — the chat id stored on the task row
-    # can be corrupted on an older mis-stored row, which made the send fail.
-    group = get_settings().staff_group_chat_id
-    sent = await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
+    try:
+        missing = task_service.missing_items(task_id)
+        fresh = task_service.with_mention(task)
+        mention = fresh.get("_assignee_mention") or task.get("Assigned Staff Name")
+        peak = _peak_mention(task)
+        if peak:
+            mention = f"{mention} / {peak}"
+        # Always use the CONFIGURED staff group — the chat id stored on the task row
+        # can be corrupted on an older mis-stored row, which made the send fail.
+        group = get_settings().staff_group_chat_id
+        sent = await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
+    except Exception:
+        log.exception("nudge_group failed for %s", task_id)
+        return False, "Couldn't post the nudge — this looks like an old damaged record. Try 'Mark This Day Closed' or 'Re-open / edit as admin' to clear it."
     if sent:
         from app.repositories import reminder_repo
         reminder_repo.log_reminder(task_id, group, sent.message_id)
