@@ -212,8 +212,10 @@ async def refresh_group_card(task_id: str) -> None:
     # Keep the Open Checklist button while the task can still be completed, so a
     # staff member who closed the Mini App can always get back in.
     markup = keyboards.open_checklist_button(task_id) if is_openable(task) else None
+    # Use the configured staff group (the task's stored chat id can be corrupted
+    # on an older mis-stored row).
     await notify.edit_message(
-        task["Staff Group Chat ID"], int(task["Initial Message ID"]),
+        get_settings().staff_group_chat_id, int(task["Initial Message ID"]),
         messages.group_card(task, role_label),
         reply_markup=markup,
     )
@@ -262,10 +264,10 @@ async def repost_checklist(d: date, checklist_type: str) -> dict | None:
 
     # Retire the old group card (drop its button + mark it reassigned).
     old_msg_id = task.get("Initial Message ID")
-    if old_msg_id and task.get("Staff Group Chat ID"):
+    if old_msg_id:
         try:
             await notify.edit_message(
-                task["Staff Group Chat ID"], int(old_msg_id),
+                get_settings().staff_group_chat_id, int(old_msg_id),
                 "↪️ <i>This checklist was reassigned — see the new card below.</i>",
                 reply_markup=None)
         except Exception:

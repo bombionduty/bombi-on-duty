@@ -78,7 +78,9 @@ async def nudge_group(task_id: str) -> tuple[bool, str]:
     peak = _peak_mention(task)
     if peak:
         mention = f"{mention} / {peak}"
-    group = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
+    # Always use the CONFIGURED staff group — the chat id stored on the task row
+    # can be corrupted on an older mis-stored row, which made the send fail.
+    group = get_settings().staff_group_chat_id
     sent = await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
     if sent:
         from app.repositories import reminder_repo
@@ -113,7 +115,7 @@ async def send_due_reminders(task: dict) -> None:
         peak_mention = _peak_mention(task)
         if peak_mention:
             mention = f"{mention} / {peak_mention}"
-        group = task.get("Staff Group Chat ID") or get_settings().staff_group_chat_id
+        group = get_settings().staff_group_chat_id  # configured group (robust)
         sent = await notify.send_message(group, f"{mention}\n\n" + messages.staff_reminder(task, missing))
         # Track the group reminder so we can delete it once the task is submitted.
         if sent:
