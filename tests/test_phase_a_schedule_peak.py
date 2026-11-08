@@ -96,6 +96,20 @@ def test_unrelated_staff_blocked(monkeypatch):
         ss.authorize_open(dict(TASK), 999)
 
 
+def test_peak_allowed_via_schedule_when_task_field_missing(monkeypatch):
+    # Task's stored Peak Telegram User ID is blank/garbled, but the schedule says
+    # tg 200 (Miles) is the closing peak → she must still be allowed in.
+    t = {**TASK, "Peak Telegram User ID": "", "Peak Staff Name": "", "Date": "2026-11-07"}
+    monkeypatch.setattr(ss.task_repo, "get", lambda tid: t)
+    monkeypatch.setattr(ss.staff_repo, "is_admin", lambda tg: False)
+    monkeypatch.setattr(ss.staff_repo, "get_by_telegram_id",
+                        lambda tg: {"Active": True, "Staff Name": "Miles"})
+    monkeypatch.setattr(ss.schedule_repo, "peak_staff_id", lambda d: "PEAK")
+    monkeypatch.setattr(ss.staff_repo, "get_by_staff_id",
+                        lambda sid: {"Telegram User ID": 200})
+    assert ss.authorize_open(dict(t), 200) is not None
+
+
 def test_peak_blocked_after_submission(monkeypatch):
     submitted = {**TASK, "Submitted At": "2026-06-22T22:00:00"}
     monkeypatch.setattr(ss.task_repo, "get", lambda tid: submitted)

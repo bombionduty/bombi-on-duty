@@ -11,7 +11,7 @@ from datetime import date
 
 from app import clock, constants
 from app.config import get_settings
-from app.repositories import evidence_repo, staff_repo, task_repo
+from app.repositories import evidence_repo, schedule_repo, staff_repo, task_repo
 from app.repositories.base import as_bool
 from app.repositories.misc_repo import audit, reviews
 from app.security import hash_token
@@ -29,6 +29,25 @@ class AuthError(Exception):
 
 def task_from_token(token: str) -> dict | None:
     return task_repo.get_by_token_hash(hash_token(token))
+
+
+def _is_closing_peak(task: dict, tg_id: int) -> bool:
+    """Is tg_id the closing peak-support for this closing checklist? Checks the
+    value stored on the task, then falls back to the effective schedule for the
+    date — robust against a mis-stored task row and reflecting schedule changes."""
+    peak_tg = str(task.get("Peak Telegram User ID") or "")
+    if peak_tg and peak_tg == str(tg_id):
+        return True
+    try:
+        d = clock.parse_date(str(task.get("Date")))  # Date is a reliable column
+        peak_sid = schedule_repo.peak_staff_id(d)
+        if peak_sid:
+            peak = staff_repo.get_by_staff_id(peak_sid)
+            if peak and str(peak.get("Telegram User ID")) == str(tg_id):
+                return True
+    except Exception:
+        log.exception("closing-peak resolve failed")
+    return False
 
 
 def authorize_open(task: dict | None, tg_id: int) -> dict:
@@ -56,9 +75,9 @@ def authorize_open(task: dict | None, tg_id: int) -> dict:
         raise AuthError("Your account is not active. Please contact the admin.")
     # The assigned closer OR the closing peak-support staffer may open the SAME
     # closing checklist and continue where the other left off (spec Feature 2).
-    peak_tg = str(task.get("Peak Telegram User ID") or "")
-    allowed = str(task.get("Assigned Telegram User ID")) == str(tg_id) or (
-        peak_tg and peak_tg == str(tg_id))
+    allowed = str(task.get("Assigned Telegram User ID")) == str(tg_id)
+    if not allowed and str(task.get("Checklist Type")) == constants.CHECK_CLOSING:
+        allowed = _is_closing_peak(task, tg_id)
     if not allowed:
         raise AuthError(
             f"This checklist is assigned to {task.get('Assigned Staff Name')}. "
