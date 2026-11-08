@@ -283,6 +283,30 @@ async def admin_today(date: Optional[str] = None, caller: Caller = Depends(curre
     }
 
 
+@router.get("/admin/timeline")
+async def admin_timeline(date: Optional[str] = None, caller: Caller = Depends(current_caller)):
+    """A single ordered feed of every group notification for the day — checklists,
+    weekly tasks, shift reminders, recaps — with time, who's tagged, and whether
+    it's already been delivered."""
+    _admin(caller)
+    from app.services import timeline_service
+    d = clock.parse_date(date) if date else clock.today()
+    return {"date": d.isoformat(), "events": timeline_service.build(d)}
+
+
+@router.post("/admin/timeline/announce")
+async def admin_timeline_announce(payload: dict, caller: Caller = Depends(current_caller)):
+    """Re-announce one notification from the feed to the staff group."""
+    _admin(caller)
+    from app.services import timeline_service
+    d = clock.parse_date(payload["date"]) if payload.get("date") else clock.today()
+    ok, msg = await timeline_service.announce(
+        str(payload.get("kind", "")), str(payload.get("ref", "")), d)
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"ok": True, "message": msg}
+
+
 @router.get("/admin/schedule")
 async def admin_schedule(start: Optional[str] = None, caller: Caller = Depends(current_caller)):
     _schedule_editor(caller)  # admin or Store OIC

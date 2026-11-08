@@ -3,6 +3,7 @@
  * Each page calls the /api/admin/* endpoints. Auth via Telegram initData header.
  */
 const PAGES = [
+  ["timeline", "Feed"],
   ["today", "Today"], ["schedule", "Schedule"], ["assignments", "Tasks"],
   ["weekly", "Weekly"], ["reminders", "Reminders"], ["staff", "Staff"],
   ["checklists", "Checklists"], ["timing", "Timing"], ["evidence", "Evidence"],
@@ -24,7 +25,7 @@ async function init() {
   tgInit();
   try { ME = await api("/api/me"); } catch (e) { /* fall back to full view */ }
   renderTabs();
-  const def = ME.is_admin ? (qs("page") || "today") : "schedule";
+  const def = ME.is_admin ? (qs("page") || "timeline") : "schedule";
   go(def);
 }
 
@@ -56,9 +57,43 @@ async function go(page) {
 }
 
 let ADMIN_DATE = null;  // which operating date the Today tab is viewing
+let TL_DATE = null;     // which date the Feed (timeline) tab is viewing
 const today = () => ADMIN_DATE || qs("date") || new Date().toISOString().slice(0, 10);
 
 const PAGE_FN = {
+  /* --------------------------------------------------------------- FEED */
+  // One simple, ordered list of everything the bot will post to the group
+  // today — checklists, weekly tasks, shift reminders, recaps — with the time,
+  // who gets tagged, whether it's already been sent, and a Re-announce button.
+  async timeline(app) {
+    const d = TL_DATE || new Date().toISOString().slice(0, 10);
+    const data = await api(`/api/admin/timeline?date=${d}`);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    let h = `<h1>Feed</h1>
+      <p class="sub">Everything the bot will post to the group — in order. Tap
+        <b>Re-announce</b> to send one again now.</p>
+      <div class="card"><label>Date</label>
+        <input type="date" value="${esc(data.date)}" onchange="setTimelineDate(this.value)"/>
+        ${data.date !== todayStr ? `<button class="ghost" onclick="setTimelineDate('${todayStr}')">↩︎ Today</button>` : ""}</div>`;
+    if (!data.events.length) {
+      h += `<div class="card"><p class="sub">Nothing is scheduled to post to the group on this date.</p></div>`;
+    }
+    data.events.forEach(ev => {
+      const pill = ev.sent
+        ? `<span class="pill ok">Sent</span>`
+        : `<span class="pill warn">Upcoming</span>`;
+      h += `<div class="card">
+        <div class="row">
+          <strong>${esc(ev.at)} · ${ev.icon} ${esc(ev.label)}</strong>
+          ${pill}
+        </div>
+        <div class="muted">👤 ${esc(ev.who || "—")}</div>
+        ${ev.can_announce ? `<button class="ghost" onclick="announceEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}')">📣 Re-announce to group</button>` : ""}
+      </div>`;
+    });
+    app.innerHTML = h;
+  },
+
   /* -------------------------------------------------------------- TODAY */
   async today(app) {
     const d = await api(`/api/admin/today?date=${today()}`);
@@ -591,6 +626,17 @@ async function notifyAssignment(date) {
 function setAdminDate(v) {
   ADMIN_DATE = v || null;
   go("today");
+}
+function setTimelineDate(v) {
+  TL_DATE = v || null;
+  go("timeline");
+}
+async function announceEvent(kind, ref, date) {
+  try {
+    const r = await api(`/api/admin/timeline/announce`, { method: "POST", body: { kind, ref, date } });
+    toast(r.message || "Sent to the group ✅");
+    go("timeline");  // refresh so the row flips to "Sent"
+  } catch (e) { toast(e.message || "Could not send to the group"); }
 }
 async function reannounce(taskId) {
   try {
