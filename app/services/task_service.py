@@ -177,6 +177,21 @@ def with_mention(task: dict) -> dict:
         task["_assignee_mention"] = f'<a href="tg://user?id={tgid}">{_html.escape(str(name))}</a>'
     else:
         task["_assignee_mention"] = _html.escape(str(name))
+
+    # Also build a tappable mention for the closing peak support, so they get
+    # PINGED on the card (not just shown by name).
+    psid = str(task.get("Peak Staff ID") or "")
+    pname = task.get("Peak Staff Name")
+    if psid or pname:
+        ps = staff_repo.get_by_staff_id(psid) if psid else None
+        puname = str((ps or {}).get("Telegram Username") or "").lstrip("@")
+        ptgid = task.get("Peak Telegram User ID")
+        if puname:
+            task["_peak_mention"] = f"@{puname}"
+        elif ptgid:
+            task["_peak_mention"] = f'<a href="tg://user?id={ptgid}">{_html.escape(str(pname or "peak"))}</a>'
+        elif pname:
+            task["_peak_mention"] = _html.escape(str(pname))
     return task
 
 

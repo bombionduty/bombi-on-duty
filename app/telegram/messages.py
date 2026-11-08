@@ -40,9 +40,10 @@ def _who(task: dict, role_label: str) -> str:
     For a closing checklist with peak support, show the peak staffer too."""
     mention = task.get("_assignee_mention") or esc(task.get("Assigned Staff Name"))
     line = f"Assigned {role_label}: {mention}"
-    peak = task.get("Peak Staff Name")
+    peak = task.get("_peak_mention") or (esc(task.get("Peak Staff Name"))
+                                         if task.get("Peak Staff Name") else "")
     if peak:
-        line += f"\n🤝 Peak support: {esc(peak)} (either can complete)"
+        line += f"\n🤝 Peak support: {peak} (either can complete)"
     return line
 
 
