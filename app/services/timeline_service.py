@@ -21,6 +21,7 @@ from app.repositories import (
     timing_repo,
     weekly_repo,
 )
+from app.repositories.base import as_bool
 from app.repositories.misc_repo import settings_store
 from app.services import markers
 
@@ -84,6 +85,7 @@ def build(d: date) -> list[dict]:
             "time": hhmm, "at": _h12(hhmm), "icon": _CHECK_ICON.get(ct, "📋"),
             "label": ct, "who": who, "sent": bool(t),
             "kind": "checklist", "ref": ct, "can_announce": bool(t),
+            "reassignable": True, "staff_id": str(eff.get(f"{role}_id") or ""),
         })
 
     # 2) Weekly accountability tasks landing today.
@@ -96,6 +98,7 @@ def build(d: date) -> list[dict]:
             "who": inst.get("Doer Name") or "—", "sent": sent,
             "kind": "weekly", "ref": str(inst.get("Instance ID") or ""),
             "can_announce": sent,
+            "reassignable": True, "staff_id": str(inst.get("Doer Staff ID") or ""),
         })
 
     # 3) Shift reminders scheduled for this weekday.
@@ -139,6 +142,12 @@ def build(d: date) -> list[dict]:
             "sent": markers.done(f"weekly_report::{d.isoformat()}"),
             "kind": "weekly_report", "ref": "", "can_announce": True,
         })
+
+    # Shift reminders + recaps target a role / the whole group, not one person,
+    # so they aren't individually reassignable here.
+    for e in events:
+        e.setdefault("reassignable", False)
+        e.setdefault("staff_id", "")
 
     events.sort(key=lambda e: (e["time"], e["label"]))
     return events
@@ -190,3 +199,73 @@ async def announce(kind: str, ref: str, d: date) -> tuple[bool, str]:
         return True, "Weekly report re-sent. ✅"
 
     return False, "Unknown notification type."
+
+
+async def reassign(kind: str, ref: str, d: date, staff_id: str,
+                   announce: bool) -> tuple[bool, str]:
+    """Reassign one notification's tagged staff FOR DATE `d` ONLY.
+
+    Writes a date-scoped override (never the permanent weekly template / default
+    doer), so succeeding days are untouched. When `announce` is true (the item has
+    already fired), it also re-posts to the group tagging the new person.
+    """
+    from app.repositories import staff_repo
+    staff = staff_repo.get_by_staff_id(staff_id) if staff_id else None
+    if not staff:
+        return False, "Pick a staff member first."
+    if not as_bool(staff.get("Active")):
+        return False, "That staff member is inactive."
+    new_name = staff.get("Staff Name", "that staffer")
+
+    if kind == "checklist":
+        from app.services import task_service
+        role = constants.CHECK_RESPONSIBLE.get(ref)
+        if role == "opener":
+            schedule_repo.upsert(d, opener_staff_id=staff_id)
+        elif role == "closer":
+            schedule_repo.upsert(d, closer_staff_id=staff_id)
+        else:
+            return False, "That checklist can't be reassigned here."
+        if announce:
+            # Already released → re-sync the live task + post a fresh card that
+            # tags the new person (retires the old card).
+            task = await task_service.repost_checklist(d, ref)
+            if task:
+                return True, f"Reassigned to {new_name} and re-announced to the group. ✅"
+        return True, f"Reassigned to {new_name} for today. ✅ They'll be tagged when it posts."
+
+    if kind == "weekly":
+        from app.services import weekly_service
+        inst = weekly_repo.get_instance(ref)
+        if not inst:
+            return False, "That weekly task no longer exists."
+        weekly_repo.update_instance(ref, {
+            "Doer Staff ID": staff.get("Staff ID", ""),
+            "Doer Name": staff.get("Staff Name", ""),
+            "Doer Telegram User ID": str(staff.get("Telegram User ID", "")),
+        })
+        fresh = weekly_repo.get_instance(ref)
+        if announce and str(inst.get("Group Message ID")):
+            # Retire the old card, then post a fresh one tagging the new doer.
+            await _retire_weekly_card(inst)
+            await weekly_service.post_card(
+                fresh, header="🔁 <b>WEEKLY CHECKLIST — reassigned</b>")
+            return True, f"Reassigned to {new_name} and re-announced to the group. ✅"
+        return True, f"Reassigned to {new_name} for this week. ✅"
+
+    return False, "That notification can't be reassigned."
+
+
+async def _retire_weekly_card(inst: dict) -> None:
+    """Drop the old weekly card so there's no stale message tagging the old doer."""
+    from app.config import get_settings
+    from app.telegram import notify
+    gid = inst.get("Group Message ID")
+    if not gid:
+        return
+    try:
+        await notify.edit_message(
+            get_settings().staff_group_chat_id, int(gid),
+            "↪️ <i>This weekly checklist was reassigned — see the new card below.</i>")
+    except Exception:
+        pass

@@ -67,28 +67,47 @@ const PAGE_FN = {
   // who gets tagged, whether it's already been sent, and a Re-announce button.
   async timeline(app) {
     const d = TL_DATE || new Date().toISOString().slice(0, 10);
-    const data = await api(`/api/admin/timeline?date=${d}`);
+    const [data, staffResp] = await Promise.all([
+      api(`/api/admin/timeline?date=${d}`),
+      api(`/api/admin/staff`),
+    ]);
+    const staff = (staffResp.staff || []).filter(s => isTrue(s.Active));
+    const staffOpts = (sel) => `<option value="">— unassigned —</option>` + staff.map(s =>
+      `<option value="${esc(s["Staff ID"])}" ${sel === s["Staff ID"] ? "selected" : ""}>${esc(s["Staff Name"])}</option>`).join("");
     const todayStr = new Date().toISOString().slice(0, 10);
     let h = `<h1>Feed</h1>
       <p class="sub">Everything the bot will post to the group — in order. Tap
-        <b>Re-announce</b> to send one again now.</p>
+        <b>Re-announce</b> to send one again, or reassign who gets tagged
+        (today only — other days are untouched).</p>
       <div class="card"><label>Date</label>
         <input type="date" value="${esc(data.date)}" onchange="setTimelineDate(this.value)"/>
         ${data.date !== todayStr ? `<button class="ghost" onclick="setTimelineDate('${todayStr}')">↩︎ Today</button>` : ""}</div>`;
     if (!data.events.length) {
       h += `<div class="card"><p class="sub">Nothing is scheduled to post to the group on this date.</p></div>`;
     }
-    data.events.forEach(ev => {
+    data.events.forEach((ev, i) => {
       const pill = ev.sent
         ? `<span class="pill ok">Sent</span>`
         : `<span class="pill warn">Upcoming</span>`;
+      let controls = ev.can_announce
+        ? `<button class="ghost" onclick="announceEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}')">📣 Re-announce to group</button>`
+        : "";
+      if (ev.reassignable) {
+        // Already fired → changing the person also re-posts to the group tagging
+        // them. Not fired yet → just set who'll be tagged when it posts.
+        const btn = ev.sent ? "💾 Reassign & re-announce" : "💾 Save for today";
+        controls += `
+          <label class="muted" style="display:block;margin-top:8px">Reassign (today only)</label>
+          <select id="tlsel_${i}">${staffOpts(ev.staff_id)}</select>
+          <button class="secondary" onclick="reassignEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}',${ev.sent ? "true" : "false"},'tlsel_${i}')">${btn}</button>`;
+      }
       h += `<div class="card">
         <div class="row">
           <strong>${esc(ev.at)} · ${ev.icon} ${esc(ev.label)}</strong>
           ${pill}
         </div>
         <div class="muted">👤 ${esc(ev.who || "—")}</div>
-        ${ev.can_announce ? `<button class="ghost" onclick="announceEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}')">📣 Re-announce to group</button>` : ""}
+        ${controls}
       </div>`;
     });
     app.innerHTML = h;
@@ -637,6 +656,17 @@ async function announceEvent(kind, ref, date) {
     toast(r.message || "Sent to the group ✅");
     go("timeline");  // refresh so the row flips to "Sent"
   } catch (e) { toast(e.message || "Could not send to the group"); }
+}
+async function reassignEvent(kind, ref, date, announce, selId) {
+  const sel = document.getElementById(selId);
+  const staff_id = sel ? sel.value : "";
+  if (!staff_id) { toast("Pick a staff member first."); return; }
+  try {
+    const r = await api(`/api/admin/timeline/reassign`, { method: "POST",
+      body: { kind, ref, date, staff_id, announce } });
+    toast(r.message || "Reassigned ✅");
+    go("timeline");  // refresh so the new name + status show
+  } catch (e) { toast(e.message || "Could not reassign"); }
 }
 async function reannounce(taskId) {
   try {

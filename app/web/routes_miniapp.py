@@ -307,6 +307,21 @@ async def admin_timeline_announce(payload: dict, caller: Caller = Depends(curren
     return {"ok": True, "message": msg}
 
 
+@router.post("/admin/timeline/reassign")
+async def admin_timeline_reassign(payload: dict, caller: Caller = Depends(current_caller)):
+    """Reassign one notification's tagged staff for the viewed date only.
+    When it has already fired (announce=true), also re-post it to the group."""
+    _admin(caller)
+    from app.services import timeline_service
+    d = clock.parse_date(payload["date"]) if payload.get("date") else clock.today()
+    ok, msg = await timeline_service.reassign(
+        str(payload.get("kind", "")), str(payload.get("ref", "")), d,
+        str(payload.get("staff_id", "")), bool(payload.get("announce")))
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"ok": True, "message": msg}
+
+
 @router.get("/admin/schedule")
 async def admin_schedule(start: Optional[str] = None, caller: Caller = Depends(current_caller)):
     _schedule_editor(caller)  # admin or Store OIC

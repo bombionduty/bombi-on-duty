@@ -105,6 +105,67 @@ async def test_announce_checklist_reposts(monkeypatch):
     assert ok and called["args"] == (D, constants.CHECK_CLOSING)
 
 
+def test_checklist_and_weekly_events_are_reassignable(monkeypatch):
+    _base(monkeypatch, instances=[{
+        "Instance ID": "W1", "Title": "Deep clean", "Time": "14:00",
+        "Doer Name": "Pia", "Doer Staff ID": "S7", "Group Message ID": ""}])
+    events = tl.build(D)
+    opening = next(e for e in events if e["label"] == constants.CHECK_OPENING)
+    weekly = next(e for e in events if e["kind"] == "weekly")
+    gm = next(e for e in events if e["kind"] == "goodmorning")
+    assert opening["reassignable"] and opening["staff_id"] == "S1"   # opener
+    assert weekly["reassignable"] and weekly["staff_id"] == "S7"
+    assert gm["reassignable"] is False                              # recap: not
+
+
+@pytest.mark.asyncio
+async def test_reassign_checklist_writes_date_only_override(monkeypatch):
+    calls = {}
+    monkeypatch.setattr("app.repositories.staff_repo.get_by_staff_id",
+                        lambda sid: {"Staff ID": sid, "Staff Name": "Nina", "Active": True,
+                                     "Telegram User ID": 55})
+    monkeypatch.setattr(tl.schedule_repo, "upsert",
+                        lambda d, **kw: calls.setdefault("upsert", (d, kw)))
+    # Not fired yet (announce=False) → override only, no repost.
+    reposted = {"n": 0}
+
+    async def fake_repost(d, ct):
+        reposted["n"] += 1
+        return {"Task ID": "T"}
+
+    monkeypatch.setattr("app.services.task_service.repost_checklist", fake_repost)
+    ok, msg = await tl.reassign("checklist", constants.CHECK_CLOSING, D, "S9", False)
+    assert ok
+    d, kw = calls["upsert"]
+    assert d == D and kw == {"closer_staff_id": "S9"}   # only closer, date-scoped
+    assert reposted["n"] == 0                            # no group post when not fired
+
+
+@pytest.mark.asyncio
+async def test_reassign_fired_checklist_reposts(monkeypatch):
+    monkeypatch.setattr("app.repositories.staff_repo.get_by_staff_id",
+                        lambda sid: {"Staff ID": sid, "Staff Name": "Nina", "Active": True,
+                                     "Telegram User ID": 55})
+    monkeypatch.setattr(tl.schedule_repo, "upsert", lambda d, **kw: None)
+    reposted = {"n": 0}
+
+    async def fake_repost(d, ct):
+        reposted["n"] += 1
+        return {"Task ID": "T"}
+
+    monkeypatch.setattr("app.services.task_service.repost_checklist", fake_repost)
+    ok, msg = await tl.reassign("checklist", constants.CHECK_OPENING, D, "S9", True)
+    assert ok and reposted["n"] == 1 and "re-announced" in msg
+
+
+@pytest.mark.asyncio
+async def test_reassign_rejects_inactive_staff(monkeypatch):
+    monkeypatch.setattr("app.repositories.staff_repo.get_by_staff_id",
+                        lambda sid: {"Staff ID": sid, "Staff Name": "Gone", "Active": False})
+    ok, msg = await tl.reassign("checklist", constants.CHECK_OPENING, D, "S9", True)
+    assert not ok and "inactive" in msg.lower()
+
+
 @pytest.mark.asyncio
 async def test_announce_shift_parses_ref(monkeypatch):
     fired = {}
