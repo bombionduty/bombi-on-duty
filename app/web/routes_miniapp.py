@@ -475,6 +475,30 @@ async def admin_nudge(task_id: str, caller: Caller = Depends(current_caller)):
     return {"ok": True, "message": msg}
 
 
+@router.post("/admin/task/{task_id}/clear")
+async def admin_clear_task(task_id: str, caller: Caller = Depends(current_caller)):
+    """Force-close a checklist as 'Not Submitted' without opening the form.
+
+    Writes clean values straight to the row, which also HEALS a damaged/mis-stored
+    row (the aligned write overwrites any corrupted cells) and moves it to a
+    terminal state so it stops erroring and leaves the scheduler's open set.
+    """
+    _admin(caller)
+    task = task_repo.get(task_id)
+    if not task:
+        raise HTTPException(404, "That checklist no longer exists.")
+    task_repo.update(task_id, {
+        "Original Submission Status": constants.SUB_NOT_SUBMITTED,
+        "Not Submitted At": clock.iso(clock.now()),
+        "Submitted At": "",
+        "Submitted By Name": "",
+        "Checklist Result": "",
+        "Evidence Status": constants.EV_MISSING,
+        "Resolution Status": constants.RES_CLOSED_NO_RECOVERY,
+    })
+    return {"ok": True, "message": "Marked as Not Submitted and cleared. ✅"}
+
+
 @router.get("/admin/weekly")
 async def admin_weekly(caller: Caller = Depends(current_caller)):
     """Weekly accountability library + this week's occurrences (Feature 3)."""

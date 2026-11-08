@@ -84,7 +84,8 @@ const PAGE_FN = {
         <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
         ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">${label}</button>` : ""}
         ${(!t.closed && t.task_id) ? `<button class="ghost" onclick="nudgeTask('${esc(t.task_id)}')">📣 Nudge group now</button>` : ""}
-        ${t.submitted ? `<button class="ghost" onclick="reannounce('${esc(t.task_id)}')">📣 Re-announce to group</button>` : ""}</div>`;
+        ${t.submitted ? `<button class="ghost" onclick="reannounce('${esc(t.task_id)}')">📣 Re-announce to group</button>` : ""}
+        ${(!t.closed && t.task_id) ? `<button class="ghost" onclick="clearTask('${esc(t.task_id)}')">🧹 Mark Not Submitted &amp; clear</button>` : ""}</div>`;
     });
     h += `<button class="secondary" onclick="sendEvidence('${esc(d.date)}')">📤 Send All Evidence Here</button>
       <button class="ghost" onclick="markClosed('${esc(d.date)}')">Mark This Day Closed</button>`;
@@ -601,6 +602,14 @@ async function nudgeTask(taskId) {
     const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/nudge`, { method: "POST" });
     toast(r.message || "📣 Nudged the group");
   } catch (e) { toast(e.message || "Could not nudge the group"); }
+}
+async function clearTask(taskId) {
+  if (!confirm("Mark this checklist as Not Submitted and clear it? This also repairs a damaged record.")) return;
+  try {
+    const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/clear`, { method: "POST" });
+    toast(r.message || "Cleared ✅");
+    go("today");
+  } catch (e) { toast(e.message || "Could not clear this record"); }
 }
 function completeAsAdmin(taskId) {
   // Open the SAME checklist form the staff use, for this task. The admin is
