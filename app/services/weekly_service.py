@@ -47,7 +47,20 @@ def _doer_mention(inst: dict) -> str:
 
 def _requires_verify(inst: dict) -> bool:
     """Whether this instance is two-step (doer → a different person verifies).
-    Single-step (one photo = done) is the default."""
+    Single-step (one photo = done) is the default.
+
+    The LIVE task definition is the source of truth, so switching a task to
+    single-photo takes effect for this week's already-created occurrence too —
+    not just future ones. Falls back to the value captured on the instance only
+    if the definition is gone."""
+    wid = str(inst.get("Weekly ID") or "")
+    if wid:
+        try:
+            d = repo.get_def(wid)
+        except Exception:
+            d = None
+        if d is not None:
+            return as_bool(d.get("Requires Verification"))
     return as_bool(inst.get("Requires Verification"))
 
 
@@ -258,6 +271,12 @@ async def cutoff_if_due(now: datetime) -> list[dict]:
             continue
         if _suppressed(inst):
             continue  # Shift B half-day — never posted, so never "missed"
+        # Safety net: a SINGLE-photo task whose doer already submitted is DONE —
+        # never flag it "not verified" (verification isn't required anymore).
+        if str(inst.get("Status")) == repo.ST_DOER_DONE and not _requires_verify(inst):
+            repo.update_instance(inst["Instance ID"], {"Status": repo.ST_VERIFIED})
+            await _refresh_card(inst["Instance ID"])
+            continue
         repo.update_instance(inst["Instance ID"],
                              {"Status": repo.ST_MISSING, "Missing At Cutoff": True})
         await _refresh_card(inst["Instance ID"])
