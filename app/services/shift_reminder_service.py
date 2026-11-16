@@ -57,6 +57,9 @@ def due(now: datetime) -> list[dict]:
     today = now.date()
     weekday = today.strftime("%a").upper()
     hhmm = now.strftime("%H:%M")
+    # On a Shift B half-day, drop any reminder slot scheduled BEFORE the duty-start
+    # time (the store isn't open yet, e.g. the 3 PM nudge when opening at 4 PM).
+    duty_start = schedule_repo.duty_start_time(today)  # None unless Shift B
     for r in repo.active_rows():
         days = repo.parse_days(r.get("Days"))
         if days and weekday not in days:
@@ -64,6 +67,12 @@ def due(now: datetime) -> list[dict]:
         for slot in repo.parse_slots(r.get("Slots")):
             if slot["time"] != hhmm:
                 continue
+            if duty_start is not None:
+                try:
+                    if clock.parse_time(slot["time"]) < duty_start:
+                        continue
+                except Exception:
+                    pass
             rid = str(r.get("Reminder ID"))
             out.append({"reminder": r, "slot": slot,
                         "key": f"shiftrem::{rid}::{today.isoformat()}::{slot['time']}::{slot['role']}"})

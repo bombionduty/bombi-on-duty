@@ -50,7 +50,8 @@ HEADERS: dict[str, list[str]] = {
     SCHEDULE: [
         "Date", "Day", "Status", "Opener Staff ID", "Opener Name",
         "Closer Staff ID", "Closer Name", "Closing Peak Staff ID",
-        "Closing Peak Name", "Notes", "Created At", "Updated At",
+        "Closing Peak Name", "Shift Mode", "Duty Start", "Notes",
+        "Created At", "Updated At",
     ],
     OFFICIAL_SCHEDULE: [
         "Weekday", "Opener Staff ID", "Opener Name", "Closer Staff ID",

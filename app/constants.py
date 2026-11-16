@@ -76,6 +76,14 @@ META_DUPLICATE = "Possible Duplicate"
 DAY_OPEN = "OPEN"
 DAY_CLOSED = "CLOSED"
 
+# ---- Shift mode (per-date) ----
+# Shift A = the normal full-day official schedule. Shift B = an optional
+# half-day / holiday shift: opens later (configurable per day), the opener also
+# closes (no handover), and general-cleaning / weekly checklists are suppressed.
+SHIFT_A = "A"
+SHIFT_B = "B"
+DEFAULT_DUTY_START = "16:00"  # 4 PM — default Shift B opening time
+
 # ---- Settings keys (Settings tab) ----
 SETTING_OIC_RECOVERY_DAYS = "oic_recovery_days"
 SETTING_DAILY_SUMMARY_TIME = "daily_summary_time"

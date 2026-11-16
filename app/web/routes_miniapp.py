@@ -291,7 +291,14 @@ async def admin_timeline(date: Optional[str] = None, caller: Caller = Depends(cu
     _admin(caller)
     from app.services import timeline_service
     d = clock.parse_date(date) if date else clock.today()
-    return {"date": d.isoformat(), "events": timeline_service.build(d)}
+    eff = schedule_repo.resolve(d)
+    return {
+        "date": d.isoformat(),
+        "shift_mode": eff.get("shift_mode"),
+        "duty_start": eff.get("duty_start"),
+        "day_closed": str(eff.get("status")) == constants.DAY_CLOSED,
+        "events": timeline_service.build(d),
+    }
 
 
 @router.post("/admin/timeline/announce")
@@ -350,6 +357,8 @@ async def admin_schedule_set(payload: dict, caller: Caller = Depends(current_cal
         opener_staff_id=payload.get("opener_staff_id"),
         closer_staff_id=payload.get("closer_staff_id"),
         closing_peak_staff_id=payload.get("closing_peak_staff_id"),
+        shift_mode=payload.get("shift_mode"),
+        duty_start=payload.get("duty_start"),
         notes=payload.get("notes"),
     )
 

@@ -75,10 +75,16 @@ const PAGE_FN = {
     const staffOpts = (sel) => `<option value="">— unassigned —</option>` + staff.map(s =>
       `<option value="${esc(s["Staff ID"])}" ${sel === s["Staff ID"] ? "selected" : ""}>${esc(s["Staff Name"])}</option>`).join("");
     const todayStr = new Date().toISOString().slice(0, 10);
+    const shiftBadge = data.day_closed
+      ? `<p class="sub" style="color:#b00;font-weight:700">🚫 Store CLOSED this day</p>`
+      : (data.shift_mode === "B"
+        ? `<p class="sub" style="color:#c2185b;font-weight:700">🌓 Shift B (half day) — opens ${esc(data.duty_start||"16:00")}. No handover; general-cleaning &amp; weekly checklists skipped.</p>`
+        : "");
     let h = `<h1>Feed</h1>
       <p class="sub">Everything the bot will post to the group — in order. Tap
         <b>Re-announce</b> to send one again, or reassign who gets tagged
         (today only — other days are untouched).</p>
+      ${shiftBadge}
       <div class="card"><label>Date</label>
         <input type="date" value="${esc(data.date)}" onchange="setTimelineDate(this.value)"/>
         ${data.date !== todayStr ? `<button class="ghost" onclick="setTimelineDate('${todayStr}')">↩︎ Today</button>` : ""}</div>`;
@@ -182,13 +188,22 @@ const PAGE_FN = {
       ? ` <span class="sub" style="color:#c97a00">(official)</span>`
       : (src === "none" ? ` <span class="sub" style="color:#b00">(unassigned)</span>` : "");
     data.rows.forEach(r => {
-      h += `<div class="card"><strong>${esc(r.date)} (${esc(WD[r.day]||r.day||"")})</strong>
+      const isB = r.shift_mode === "B";
+      h += `<div class="card"${isB ? ` style="background:#fff0f6"` : ""}><strong>${esc(r.date)} (${esc(WD[r.day]||r.day||"")})</strong>
+        ${isB ? `<p class="sub" style="color:#c2185b;font-weight:700">🌓 Shift B (half day)</p>` : ""}
         <label>Status</label>
         <select id="st_${r.date}"><option ${r.status==="OPEN"?"selected":""}>OPEN</option>
           <option ${r.status==="CLOSED"?"selected":""}>CLOSED</option></select>
+        <label>Shift</label>
+        <select id="sh_${r.date}">
+          <option value="A" ${!isB?"selected":""}>A — normal full day</option>
+          <option value="B" ${isB?"selected":""}>B — half day / holiday</option></select>
+        <label>Duty start <span class="sub">(Shift B only — opening posts at this time)</span></label>
+        <input type="time" id="ds_${r.date}" value="${esc(r.duty_start||'16:00')}"/>
+        <p class="sub">On Shift B the opener also closes (no handover); general-cleaning &amp; weekly checklists are skipped, and reminders before duty-start are muted. Leave Closer blank to let the opener close.</p>
         <label>Opener${tag(r.opener_src)}</label><select id="op_${r.date}"><option value="">—</option>${opts(r.opener_id)}</select>
-        <label>Closer${tag(r.closer_src)}</label><select id="cl_${r.date}"><option value="">—</option>${opts(r.closer_id)}</select>
-        <label>Closing peak support${tag(r.peak_src)}</label><select id="pk_${r.date}"><option value="">— none —</option>${opts(r.peak_id)}</select>
+        <label>Closer${isB?"":tag(r.closer_src)}</label><select id="cl_${r.date}"><option value="">${isB?"— opener closes —":"—"}</option>${opts(isB ? r.explicit_closer_id : r.closer_id)}</select>
+        <label>Closing peak support${isB?"":tag(r.peak_src)}</label><select id="pk_${r.date}"><option value="">— none —</option>${opts(isB ? r.explicit_peak_id : r.peak_id)}</select>
         <button class="ghost" onclick="saveSched('${r.date}')">💾 Save ${esc(r.date)}</button>
         <button class="secondary" onclick="notifyAssignment('${r.date}')">📢 Notify Group</button></div>`;
     });
@@ -503,8 +518,10 @@ async function saveSched(date) {
   await api(`/api/admin/schedule`, { method: "POST", body: {
     date, status: val(`st_${date}`),
     opener_staff_id: val(`op_${date}`), closer_staff_id: val(`cl_${date}`),
-    closing_peak_staff_id: val(`pk_${date}`) } });
+    closing_peak_staff_id: val(`pk_${date}`),
+    shift_mode: val(`sh_${date}`), duty_start: val(`ds_${date}`) } });
   toast("Saved " + date);
+  go("schedule");  // re-render so Shift B styling + fields reflect the save
 }
 async function saveOfficial(wd) {
   await api(`/api/admin/official-schedule`, { method: "POST", body: {

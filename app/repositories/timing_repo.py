@@ -73,7 +73,33 @@ def get_timing(checklist_type: str, d: date) -> TaskTiming | None:
     reminders = [_resolve_dt(d, t, release) for t in _parse_reminders(row.get("Staff Reminder Times", ""))]
     esc = _resolve_dt(d, clock.parse_time(str(row["OIC Escalation Time"])), release)
     cutoff = _resolve_dt(d, clock.parse_time(str(row["Cutoff Time"])), release)
-    return TaskTiming(release_at, sorted(reminders), esc, cutoff)
+    timing = TaskTiming(release_at, sorted(reminders), esc, cutoff)
+    return _apply_shift_b(checklist_type, d, timing)
+
+
+def _apply_shift_b(checklist_type: str, d: date, timing: "TaskTiming") -> TaskTiming | None:
+    """On an optional half-day (Shift B): there is no Opener Handover (the opener
+    also closes), and the Opening check opens at the day's duty-start time instead
+    of the normal morning release. The whole opening window (reminders / escalation
+    / cutoff) shifts by the same amount so the spacing is preserved."""
+    from app import constants
+    from app.repositories import schedule_repo
+    if not schedule_repo.is_shift_b(d):
+        return timing
+    if checklist_type == constants.CHECK_HANDOVER:
+        return None  # suppressed on half days
+    if checklist_type == constants.CHECK_OPENING:
+        ds = schedule_repo.duty_start_time(d)
+        if ds:
+            new_release = clock.combine(d, ds)
+            delta = new_release - timing.release_at
+            return TaskTiming(
+                new_release,
+                sorted(r + delta for r in timing.reminders_at),
+                timing.oic_escalation_at + delta,
+                timing.cutoff_at + delta,
+            )
+    return timing
 
 
 def upsert_default(

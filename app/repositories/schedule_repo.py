@@ -87,10 +87,16 @@ def resolve(d: date) -> dict:
     op, op_src = pick("Opener Staff ID", "Opener Staff ID")
     cl, cl_src = pick("Closer Staff ID", "Closer Staff ID")
     pk, pk_src = pick("Closing Peak Staff ID", "Closing Peak Staff ID")
+    # Shift mode + duty start are per-date only (Shift B is always an explicit
+    # exception, never part of the standing official template).
+    shift = str(explicit.get("Shift Mode") or "").upper() or constants.SHIFT_A
+    duty_start = str(explicit.get("Duty Start") or "")
     return {
         "date": d.isoformat(),
         "day": _weekday(d),
         "status": str(explicit.get("Status") or ""),
+        "shift_mode": shift,
+        "duty_start": duty_start or (constants.DEFAULT_DUTY_START if shift == constants.SHIFT_B else ""),
         "opener_id": op, "opener_name": _name(op), "opener_src": op_src,
         "closer_id": cl, "closer_name": _name(cl), "closer_src": cl_src,
         "peak_id": pk, "peak_name": _name(pk), "peak_src": pk_src,
@@ -101,6 +107,32 @@ def resolve(d: date) -> dict:
     }
 
 
+def is_shift_b(d: date) -> bool:
+    """True when date `d` is explicitly set to the optional half-day Shift B.
+    Any lookup error defaults to False (normal full day) — a transient read must
+    never silently suppress or shift the day's checklists."""
+    try:
+        return str((get(d) or {}).get("Shift Mode") or "").upper() == constants.SHIFT_B
+    except Exception:
+        return False
+
+
+def duty_start_time(d: date):
+    """The Shift B opening time for `d` as a time object (default 4 PM), or None
+    when `d` is not a Shift B day (or on any lookup error)."""
+    try:
+        row = get(d) or {}
+    except Exception:
+        return None
+    if str(row.get("Shift Mode") or "").upper() != constants.SHIFT_B:
+        return None
+    raw = str(row.get("Duty Start") or "").strip() or constants.DEFAULT_DUTY_START
+    try:
+        return clock.parse_time(raw)
+    except Exception:
+        return clock.parse_time(constants.DEFAULT_DUTY_START)
+
+
 # ---------------------------------------------------------------- per-date
 def upsert(
     d: date,
@@ -109,6 +141,8 @@ def upsert(
     closer_staff_id: str | None = None,
     closing_peak_staff_id: str | None = None,
     notes: str | None = None,
+    shift_mode: str | None = None,
+    duty_start: str | None = None,
 ) -> dict:
     existing = get(d)
     changes: dict = {"Updated At": now_iso()}
@@ -123,6 +157,10 @@ def upsert(
     if closing_peak_staff_id is not None:
         changes["Closing Peak Staff ID"] = closing_peak_staff_id
         changes["Closing Peak Name"] = _name(closing_peak_staff_id)
+    if shift_mode is not None:
+        changes["Shift Mode"] = str(shift_mode or "").upper()
+    if duty_start is not None:
+        changes["Duty Start"] = duty_start
     if notes is not None:
         changes["Notes"] = notes
 
@@ -138,6 +176,8 @@ def upsert(
         "Closer Staff ID": closer_staff_id or "", "Closer Name": _name(closer_staff_id),
         "Closing Peak Staff ID": closing_peak_staff_id or "",
         "Closing Peak Name": _name(closing_peak_staff_id),
+        "Shift Mode": str(shift_mode or "").upper(),
+        "Duty Start": duty_start or "",
         "Notes": notes or "",
         "Created At": now_iso(),
         "Updated At": now_iso(),

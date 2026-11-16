@@ -68,10 +68,13 @@ def build(d: date) -> list[dict]:
     """
     eff = schedule_repo.resolve(d)
     closed = str(eff.get("status")) == constants.DAY_CLOSED
+    shift_b = str(eff.get("shift_mode")) == constants.SHIFT_B
+    duty = eff.get("duty_start") or ""
     weekday = d.strftime("%a").upper()
     events: list[dict] = []
 
-    # 1) Main checklists (Opening / Handover / Closing).
+    # 1) Main checklists (Opening / Handover / Closing). On Shift B, get_timing
+    #    suppresses Handover and shifts Opening to duty-start automatically.
     posted = {str(t.get("Checklist Type")): t for t in task_repo.for_date(d)}
     for ct in constants.CHECKLIST_TYPES:
         tim = timing_repo.get_timing(ct, d)
@@ -79,35 +82,47 @@ def build(d: date) -> list[dict]:
             continue
         t = posted.get(ct)
         role = constants.CHECK_RESPONSIBLE.get(ct, "opener")
-        who = (t.get("Assigned Staff Name") if t else "") or eff.get(f"{role}_name") or "—"
+        # On a Shift B closing the opener closes (unless an explicit closer is set).
+        if ct == constants.CHECK_CLOSING and shift_b:
+            who_id = str(eff.get("explicit_closer_id") or "") or str(eff.get("opener_id") or "")
+            who = (t.get("Assigned Staff Name") if t else "") \
+                or (eff.get("closer_name") if eff.get("explicit_closer_id") else eff.get("opener_name")) or "—"
+        else:
+            who_id = str(eff.get(f"{role}_id") or "")
+            who = (t.get("Assigned Staff Name") if t else "") or eff.get(f"{role}_name") or "—"
         hhmm = tim.release_at.strftime("%H:%M")
         events.append({
             "time": hhmm, "at": _h12(hhmm), "icon": _CHECK_ICON.get(ct, "📋"),
             "label": ct, "who": who, "sent": bool(t),
             "kind": "checklist", "ref": ct, "can_announce": bool(t),
-            "reassignable": True, "staff_id": str(eff.get(f"{role}_id") or ""),
+            "reassignable": True, "staff_id": who_id,
         })
 
-    # 2) Weekly accountability tasks landing today.
-    for inst in weekly_repo.instances_for_date(d.isoformat()):
-        sent = bool(str(inst.get("Group Message ID")))
-        hhmm = str(inst.get("Time") or "00:00")
-        events.append({
-            "time": hhmm, "at": _h12(hhmm), "icon": "🧾",
-            "label": inst.get("Title") or "Weekly checklist",
-            "who": inst.get("Doer Name") or "—", "sent": sent,
-            "kind": "weekly", "ref": str(inst.get("Instance ID") or ""),
-            "can_announce": sent,
-            "reassignable": True, "staff_id": str(inst.get("Doer Staff ID") or ""),
-        })
+    # 2) Weekly accountability tasks landing today — suppressed entirely on a
+    #    Shift B half-day (general cleaning etc. aren't scheduled).
+    if not shift_b:
+        for inst in weekly_repo.instances_for_date(d.isoformat()):
+            sent = bool(str(inst.get("Group Message ID")))
+            hhmm = str(inst.get("Time") or "00:00")
+            events.append({
+                "time": hhmm, "at": _h12(hhmm), "icon": "🧾",
+                "label": inst.get("Title") or "Weekly checklist",
+                "who": inst.get("Doer Name") or "—", "sent": sent,
+                "kind": "weekly", "ref": str(inst.get("Instance ID") or ""),
+                "can_announce": sent,
+                "reassignable": True, "staff_id": str(inst.get("Doer Staff ID") or ""),
+            })
 
-    # 3) Shift reminders scheduled for this weekday.
+    # 3) Shift reminders scheduled for this weekday. On Shift B, drop any slot
+    #    before duty-start (store not open yet).
     for r in shift_reminder_repo.active_rows():
         days = shift_reminder_repo.parse_days(r.get("Days"))
         if days and weekday not in days:
             continue
         rid = str(r.get("Reminder ID"))
         for slot in shift_reminder_repo.parse_slots(r.get("Slots")):
+            if shift_b and duty and str(slot["time"]) < str(duty):
+                continue
             role = slot.get("role", "both")
             who = "Whole group" if role == "group" else _role_names(eff, role)
             key = f"shiftrem::{rid}::{d.isoformat()}::{slot['time']}::{role}"

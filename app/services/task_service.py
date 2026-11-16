@@ -66,19 +66,30 @@ def _ensure_closed_tasks(d: date) -> None:
             task_repo.create_closed_task(d, checklist_type)
 
 
-async def _create_and_post(d, checklist_type, timing, sched) -> dict | None:
+async def _create_and_post(d, checklist_type, timing, eff) -> dict | None:
     responsible = constants.CHECK_RESPONSIBLE[checklist_type]
-    staff_id = schedule_repo.assigned_staff_id(d, responsible)
+    shift_b = str((eff or {}).get("shift_mode")) == constants.SHIFT_B
+
+    if checklist_type == constants.CHECK_CLOSING and shift_b:
+        # Half day: the opener also closes. Use an explicit closer override for the
+        # day if one was set, otherwise fall back to the opener (NOT the official
+        # template's closer, who isn't on duty on a Shift B day).
+        staff_id = str((eff or {}).get("explicit_closer_id") or "") \
+            or str((eff or {}).get("opener_id") or "")
+    else:
+        staff_id = schedule_repo.assigned_staff_id(d, responsible)
     staff = staff_repo.get_by_staff_id(staff_id) if staff_id else None
     if not staff or not as_bool(staff.get("Active")):
         log.warning("No active %s assigned for %s on %s", responsible, checklist_type, d)
         return None
 
     # Closing peak support (closer-side only): a second staffer who may open and
-    # continue the SAME closing checklist (spec Feature 2).
+    # continue the SAME closing checklist (spec Feature 2). On a Shift B day the
+    # peak comes only from an explicit override (the template's peak isn't on duty).
     peak = None
     if responsible == "closer":
-        peak_id = schedule_repo.peak_staff_id(d)
+        peak_id = str((eff or {}).get("explicit_peak_id") or "") if shift_b \
+            else schedule_repo.peak_staff_id(d)
         if peak_id and peak_id != staff_id:
             cand = staff_repo.get_by_staff_id(peak_id)
             if cand and as_bool(cand.get("Active")):

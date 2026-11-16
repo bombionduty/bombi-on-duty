@@ -69,6 +69,16 @@ def _this_week_occurrence(weekday: str, ref: date) -> date | None:
     return monday + timedelta(days=idx)
 
 
+def _suppressed(date_iso) -> bool:
+    """Weekly checklists (incl. the General Cleaning sheet) don't run on an
+    optional half-day (Shift B) — the store isn't scheduled for them."""
+    from app.repositories import schedule_repo
+    try:
+        return schedule_repo.is_shift_b(clock.parse_date(str(date_iso)))
+    except Exception:
+        return False
+
+
 def _cutoff_at(occ: date, time_str: str, cutoff_str: str) -> str:
     """ISO cutoff datetime. If the cutoff time is at/earlier than the task time,
     it means after midnight (e.g. a 23:00 task with a 01:00 cutoff)."""
@@ -180,6 +190,8 @@ def due_to_post(now: datetime) -> list[dict]:
             continue
         if str(inst.get("Group Message ID")):
             continue
+        if _suppressed(inst.get("Date")):
+            continue  # Shift B half-day — no weekly checklists
         try:
             start = clock.combine(clock.parse_date(str(inst.get("Date"))),
                                   clock.parse_time(str(inst.get("Time") or "00:00")))
@@ -198,6 +210,8 @@ def reminders_due(now: datetime) -> list[dict]:
     for inst in repo.open_instances():
         if not str(inst.get("Group Message ID")):
             continue  # not posted yet
+        if _suppressed(inst.get("Date")):
+            continue  # Shift B half-day — no weekly reminders
         d = defs.get(str(inst.get("Weekly ID")), {})
         times = [t.strip() for t in str(d.get("Reminder Times") or "").split(",") if t.strip()]
         iid = str(inst.get("Instance ID"))
@@ -229,6 +243,8 @@ async def cutoff_if_due(now: datetime) -> list[dict]:
         cut = clock.from_iso(str(inst.get("Cutoff At") or ""))
         if not cut or now < cut:
             continue
+        if _suppressed(inst.get("Date")):
+            continue  # Shift B half-day — never posted, so never "missed"
         repo.update_instance(inst["Instance ID"],
                              {"Status": repo.ST_MISSING, "Missing At Cutoff": True})
         await _refresh_card(inst["Instance ID"])
