@@ -38,10 +38,11 @@ async def release_due_tasks(d: date) -> list[dict]:
 
     Returns the list of tasks released on this call (usually 0 or 1).
     """
-    sched = schedule_repo.get(d)
-    if not sched:
-        return []  # pre-check handles missing schedule warnings
-    if str(sched.get("Status")) == constants.DAY_CLOSED:
+    # Use the EFFECTIVE schedule (explicit dated override, else the official
+    # weekday template) so checklists keep firing every week WITHOUT needing a
+    # dated row per day — the official template is the standing source of truth.
+    eff = schedule_repo.resolve(d)
+    if str(eff.get("status")) == constants.DAY_CLOSED:
         _ensure_closed_tasks(d)
         return []
 
@@ -53,7 +54,7 @@ async def release_due_tasks(d: date) -> list[dict]:
         timing = timing_repo.get_timing(checklist_type, d)
         if not timing or now < timing.release_at:
             continue
-        task = await _create_and_post(d, checklist_type, timing, sched)
+        task = await _create_and_post(d, checklist_type, timing, eff)
         if task:
             released.append(task)
     return released

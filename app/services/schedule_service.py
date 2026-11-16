@@ -20,10 +20,11 @@ log = logging.getLogger(__name__)
 
 def precheck_problems(d: date) -> list[str]:
     problems: list[str] = []
-    sched = schedule_repo.get(d)
-    if not sched:
-        return [f"No schedule row exists for {d.isoformat()}."]
-    if str(sched.get("Status")) == constants.DAY_CLOSED:
+    # Resolve the EFFECTIVE schedule (dated override, else official template).
+    # A day with no dated row is NOT a problem — it simply follows the official
+    # weekday template, which is how the store normally runs.
+    eff = schedule_repo.resolve(d)
+    if str(eff.get("status")) == constants.DAY_CLOSED:
         return []  # closed day is fine
 
     for responsible, label in (("opener", "Opener"), ("closer", "Closer")):
