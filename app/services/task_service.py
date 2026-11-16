@@ -263,7 +263,16 @@ async def repost_checklist(d: date, checklist_type: str) -> dict | None:
         return None  # not released yet (auto-release will tag the right person) or done
 
     responsible = constants.CHECK_RESPONSIBLE[checklist_type]
-    staff_id = schedule_repo.assigned_staff_id(d, responsible)
+    try:
+        eff = schedule_repo.resolve(d)
+    except Exception:
+        eff = {}
+    shift_b = str(eff.get("shift_mode")) == constants.SHIFT_B
+    if checklist_type == constants.CHECK_CLOSING and shift_b:
+        # Half day: the opener closes unless an explicit closer override is set.
+        staff_id = str(eff.get("explicit_closer_id") or "") or str(eff.get("opener_id") or "")
+    else:
+        staff_id = schedule_repo.assigned_staff_id(d, responsible)
     staff = staff_repo.get_by_staff_id(staff_id) if staff_id else None
     if not staff or not as_bool(staff.get("Active")):
         return None
@@ -276,9 +285,12 @@ async def repost_checklist(d: date, checklist_type: str) -> dict | None:
         "Assigned Staff Name": staff.get("Staff Name", ""),
         "Assigned Telegram User ID": str(staff.get("Telegram User ID", "")),
     }
-    # Closing peak support may also have changed — re-sync it too.
+    # Closing peak support may also have changed — re-sync it too. On a Shift B
+    # day the peak is tentative and comes only from the explicit override (the
+    # official template's peak isn't on duty).
     if responsible == "closer":
-        peak_id = schedule_repo.peak_staff_id(d)
+        peak_id = str(eff.get("explicit_peak_id") or "") if shift_b \
+            else schedule_repo.peak_staff_id(d)
         peak = staff_repo.get_by_staff_id(peak_id) if peak_id else None
         if peak and as_bool(peak.get("Active")) and peak_id != str(staff.get("Staff ID", "")):
             changes.update({

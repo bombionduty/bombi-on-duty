@@ -424,12 +424,37 @@ const PAGE_FN = {
   /* ------------------------------------------------------------ TIMING */
   async timing(app) {
     const d = await api(`/api/admin/timing`);
+    const rows = d.timing || [];
+    const find = (ct, dt) => rows.find(r => r["Checklist Type"] === ct && r["Day Type"] === dt) || {};
+    const timeCard = (ct, dt, dflt, bg, note) => {
+      const r = find(ct, dt);
+      return `<div class="card"${bg ? ` style="background:${bg}"` : ""}><strong>${esc(ct)} — ${esc(dt)}</strong>
+        <label>Release ${note || ""}</label><input id="rl_${ct}_${dt}" value="${esc(r["Release Time"] || dflt.rl)}"/>
+        <label>Staff reminders (comma, 24h e.g. 23:15)</label><input id="rm_${ct}_${dt}" value="${esc(r["Staff Reminder Times"] ?? dflt.rm)}"/>
+        <label>OIC escalation</label><input id="es_${ct}_${dt}" value="${esc(r["OIC Escalation Time"] || dflt.es)}"/>
+        <label>Cutoff</label><input id="co_${ct}_${dt}" value="${esc(r["Cutoff Time"] || dflt.co)}"/>
+        <button class="ghost" onclick="saveTiming('${esc(ct)}','${esc(dt)}')">💾 Save ${esc(ct)} (${esc(dt)})</button></div>`;
+    };
     let h = `<h1>Timing (Asia/Manila)</h1>
       <div class="card" style="background:#fff7f0"><p class="sub">⏰ All times are <b>24-hour</b>:
         11:15 PM = <b>23:15</b>, 1:00 AM = <b>01:00</b>. Reminders apply to the row whose
         <b>Day Type</b> matches the date (Weekend = Sat/Sun), so set them on the right row
         (or on all rows for that checklist).</p></div>`;
-    d.timing.forEach(r => {
+
+    // ---- Shift B (half day) timing ----
+    h += `<div class="card" style="background:#fff0f6"><h2>🌓 Shift B (half day) timing</h2>
+      <p class="sub">Used on days you set to <b>Shift B</b>. The Opening <b>release</b> is
+      overridden by that day's <b>Duty start</b> (Schedule tab) — but the reminders, escalation
+      and <b>cutoff</b> below still apply. Closing uses these times as-is. Handover doesn't run on Shift B.</p></div>`;
+    h += timeCard("Opening Check", "Shift B",
+      { rl: "16:00", rm: "", es: "17:30", co: "18:00" }, "#fff0f6",
+      `<span class="sub">(Duty start overrides this)</span>`);
+    h += timeCard("Closing Check", "Shift B",
+      { rl: "22:00", rm: "23:00", es: "23:45", co: "00:30" }, "#fff0f6", "");
+
+    // ---- Normal timing (everything that isn't a Shift B row) ----
+    h += `<div class="card"><h2>Normal timing</h2></div>`;
+    rows.filter(r => r["Day Type"] !== "Shift B").forEach(r => {
       h += `<div class="card"><strong>${esc(r["Checklist Type"])} (${esc(r["Day Type"])})</strong>
         <label>Release</label><input id="rl_${r["Checklist Type"]}_${r["Day Type"]}" value="${esc(r["Release Time"])}"/>
         <label>Staff reminders (comma, 24h e.g. 23:15)</label><input id="rm_${r["Checklist Type"]}_${r["Day Type"]}" value="${esc(r["Staff Reminder Times"])}"/>

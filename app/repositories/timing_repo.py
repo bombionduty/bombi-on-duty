@@ -41,17 +41,40 @@ def _day_type(d: date) -> str:
     return "Weekend" if d.weekday() >= 5 else "Weekday"
 
 
+SHIFT_B_DAY_TYPE = "Shift B"
+
+
+def _shift_b_row(checklist_type: str) -> dict | None:
+    """The admin-configured 'Shift B' timing row for a checklist type, if any."""
+    try:
+        for r in _timing().all():
+            if (r.get("Checklist Type") == checklist_type
+                    and str(r.get("Day Type")) == SHIFT_B_DAY_TYPE
+                    and as_bool(r.get("Active", True))):
+                return r
+    except Exception:
+        pass
+    return None
+
+
 def _row_for(checklist_type: str, d: date) -> dict | None:
     # 1) date-specific override
     for r in _overrides().find_all("Date", d.isoformat()):
         if r.get("Checklist Type") == checklist_type:
             return r
-    # 2) matching day type, 3) Default
     timing_rows = [
         r for r in _timing().all()
         if r.get("Checklist Type") == checklist_type and as_bool(r.get("Active", True))
     ]
     by_day = {r.get("Day Type"): r for r in timing_rows}
+    # 2) a Shift B day prefers the configured Shift B row (if the admin set one)
+    try:
+        from app.repositories import schedule_repo
+        if schedule_repo.is_shift_b(d) and by_day.get(SHIFT_B_DAY_TYPE):
+            return by_day[SHIFT_B_DAY_TYPE]
+    except Exception:
+        pass
+    # 3) matching day type, 4) Default (Shift B rows never match a normal day)
     return by_day.get(_day_type(d)) or by_day.get("Default")
 
 
@@ -92,6 +115,13 @@ def _apply_shift_b(checklist_type: str, d: date, timing: "TaskTiming") -> TaskTi
         ds = schedule_repo.duty_start_time(d)
         if ds:
             new_release = clock.combine(d, ds)
+            # If the admin configured a Shift B timing row, trust its absolute
+            # reminders / escalation / cutoff (the per-day Duty Start only moves
+            # the opening RELEASE). Otherwise shift the whole window by the same
+            # delta so nothing is left stranded in the morning.
+            if _shift_b_row(checklist_type) is not None:
+                return TaskTiming(new_release, timing.reminders_at,
+                                  timing.oic_escalation_at, timing.cutoff_at)
             delta = new_release - timing.release_at
             return TaskTiming(
                 new_release,

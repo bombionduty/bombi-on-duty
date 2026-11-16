@@ -32,6 +32,35 @@ def test_shift_b_suppresses_handover_and_moves_opening(monkeypatch):
     assert t.cutoff_at.strftime("%H:%M") == "22:00"
 
 
+def test_shift_b_uses_configured_cutoff_when_set(monkeypatch):
+    # Admin configured a 'Shift B' timing row → its absolute cutoff is used; only
+    # the opening RELEASE is moved to the per-day duty start (not the cutoff).
+    row = {"Release Time": "16:00", "Staff Reminder Times": "",
+           "OIC Escalation Time": "17:30", "Cutoff Time": "18:00"}
+    monkeypatch.setattr(timing_repo, "_row_for", lambda ct, dd: row)
+    monkeypatch.setattr(timing_repo, "_shift_b_row", lambda ct: row)  # configured
+    monkeypatch.setattr(schedule_repo, "is_shift_b", lambda dd: True)
+    monkeypatch.setattr(schedule_repo, "duty_start_time", lambda dd: time(15, 0))
+
+    t = timing_repo.get_timing(constants.CHECK_OPENING, D)
+    assert t.release_at.strftime("%H:%M") == "15:00"   # duty start wins for release
+    assert t.cutoff_at.strftime("%H:%M") == "18:00"    # configured cutoff, NOT shifted
+    assert [r.strftime("%H:%M") for r in t.reminders_at] == []
+
+
+def test_shift_b_closing_uses_configured_times(monkeypatch):
+    row = {"Release Time": "22:00", "Staff Reminder Times": "23:00",
+           "OIC Escalation Time": "23:45", "Cutoff Time": "00:30"}
+    monkeypatch.setattr(timing_repo, "_row_for", lambda ct, dd: row)
+    monkeypatch.setattr(timing_repo, "_shift_b_row", lambda ct: row)
+    monkeypatch.setattr(schedule_repo, "is_shift_b", lambda dd: True)
+    monkeypatch.setattr(schedule_repo, "duty_start_time", lambda dd: time(16, 0))
+
+    t = timing_repo.get_timing(constants.CHECK_CLOSING, D)
+    assert t.release_at.strftime("%H:%M") == "22:00"   # closing not moved by duty start
+    assert t.cutoff_at.strftime("%H:%M") == "00:30"    # rolls past midnight
+
+
 def test_normal_day_unchanged(monkeypatch):
     row = {"Release Time": "11:00", "Staff Reminder Times": "13:00",
            "OIC Escalation Time": "16:00", "Cutoff Time": "17:00"}

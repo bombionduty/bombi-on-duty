@@ -437,23 +437,30 @@ async def admin_notify_assignment(payload: dict, caller: Caller = Depends(curren
     """
     _schedule_editor(caller)  # admin or Store OIC
     d = clock.parse_date(payload["date"])
-    sched = schedule_repo.get(d)
-    if not sched:
-        raise HTTPException(404, "No schedule found for this date.")
 
     from app.services import task_service
-    opener_id = str(sched.get("Opener Staff ID") or "")
-    closer_id = str(sched.get("Closer Staff ID") or "")
-
-    opener = staff_repo.get_by_staff_id(opener_id) if opener_id else None
-    closer = staff_repo.get_by_staff_id(closer_id) if closer_id else None
-    opener_name = opener.get("Staff Name") if opener else "Unassigned"
-    closer_name = closer.get("Staff Name") if closer else "Unassigned"
+    # Use the EFFECTIVE schedule (dated override else official template) so this
+    # works even on a day that just follows the template.
+    eff = schedule_repo.resolve(d)
+    shift_b = str(eff.get("shift_mode")) == constants.SHIFT_B
+    opener_name = eff.get("opener_name") or "Unassigned"
+    # On a Shift B half-day the opener also closes unless an explicit closer is set.
+    if shift_b:
+        closer_name = (eff.get("closer_name") if eff.get("explicit_closer_id")
+                       else eff.get("opener_name")) or "Unassigned"
+        peak_name = eff.get("peak_name") if eff.get("explicit_peak_id") else ""
+    else:
+        closer_name = eff.get("closer_name") or "Unassigned"
+        peak_name = eff.get("peak_name") or ""
 
     # Send a schedule summary.
     msg = f"📋 <b>Schedule for {messages.esc(d.strftime('%b %d, %A'))}</b>\n\n"
+    if shift_b:
+        msg += f"🌓 <b>Shift B (half day)</b> — opens {messages.esc(eff.get('duty_start') or '16:00')}\n\n"
     msg += f"🌅 <b>Opening</b>: {messages.esc(opener_name)}\n"
     msg += f"🌙 <b>Closing</b>: {messages.esc(closer_name)}"
+    if peak_name:
+        msg += f"\n🤝 <b>Peak support</b> (tentative): {messages.esc(peak_name)} — may also complete the closing checklist"
     await notify.send_message(get_settings().staff_group_chat_id, msg)
 
     # Repost any already-released checklist for the current assignee, so the new
