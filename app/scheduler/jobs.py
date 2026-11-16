@@ -55,6 +55,15 @@ async def _safe(name: str, coro) -> bool:
         return False
 
 
+def _skipped(d, kind: str, ref: str = "") -> bool:
+    """Admin turned this notification OFF for the day via the Feed toggle."""
+    try:
+        from app.repositories import skip_repo
+        return skip_repo.is_skipped(d, kind, ref)
+    except Exception:
+        return False
+
+
 def _due_once(now, hhmm: str, key: str, window_min: int = 30) -> bool:
     """True if we're within `window_min` AFTER the target time and this key hasn't
     fired today. The window (vs an exact-minute match) means a bot restart around
@@ -107,7 +116,8 @@ async def _tick_inner() -> None:
 
     # 4b) "Good morning" group recap of the previous day (default 11:00).
     gm_time = settings_store.get(constants.SETTING_GOOD_MORNING_TIME)
-    if _due_once(now, gm_time, f"goodmorning::{today.isoformat()}"):
+    if _due_once(now, gm_time, f"goodmorning::{today.isoformat()}") \
+            and not _skipped(today, "goodmorning"):
         if await _safe("good_morning", summary_service.send_good_morning(yesterday)):
             markers.mark(f"goodmorning::{today.isoformat()}")
 
@@ -287,6 +297,6 @@ async def _maybe_weekly(now, spec: str, name: str, coro) -> None:
     if now.strftime("%a").upper() != day.upper():
         return
     key = f"{name}::{now.date().isoformat()}"
-    if _due_once(now, hhmm, key):
+    if _due_once(now, hhmm, key) and not _skipped(now.date(), name):
         await coro()
         markers.mark(key)

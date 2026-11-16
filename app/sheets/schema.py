@@ -35,6 +35,9 @@ WEEKLY_INSTANCES = "Weekly Instances"  # one row per week's occurrence
 # ---- Shift reminders (pure nudges, no photo/submission) ----
 SHIFT_REMINDERS = "Shift Reminders"
 
+# ---- Per-date manual on/off for any Feed notification ----
+NOTIFICATION_SKIPS = "Notification Skips"
+
 # ---- Owner Mode (Bombi On Call) — completely separate from staff data ----
 ADMIN_TASKS = "AdminTasks"
 ADMIN_RECURRING = "AdminRecurring"
@@ -163,6 +166,10 @@ HEADERS: dict[str, list[str]] = {
     SHIFT_REMINDERS: [
         "Reminder ID", "Title", "Message", "Days", "Slots", "Active",
         "Created By", "Created At", "Updated At",
+    ],
+    # One row per (date, kind, ref) the admin has toggled OFF for that day.
+    NOTIFICATION_SKIPS: [
+        "Key", "Date", "Kind", "Ref", "Skipped", "Updated At", "Updated By",
     ],
 
     # ---- Owner Mode tabs (separate from all staff data above) ----

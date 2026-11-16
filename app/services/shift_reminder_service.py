@@ -74,6 +74,10 @@ def due(now: datetime) -> list[dict]:
                 except Exception:
                     pass
             rid = str(r.get("Reminder ID"))
+            # Admin turned this exact slot OFF for the day (Feed toggle).
+            from app.repositories import skip_repo
+            if skip_repo.is_skipped(today, "shift", f"{rid}|{slot['time']}|{slot['role']}"):
+                continue
             out.append({"reminder": r, "slot": slot,
                         "key": f"shiftrem::{rid}::{today.isoformat()}::{slot['time']}::{slot['role']}"})
     return out

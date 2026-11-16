@@ -46,11 +46,14 @@ async def release_due_tasks(d: date) -> list[dict]:
         _ensure_closed_tasks(d)
         return []
 
+    from app.repositories import skip_repo
     now = clock.now()
     released = []
     for checklist_type in constants.CHECKLIST_TYPES:
         if task_repo.get_by_key(d, checklist_type):
             continue  # already created — idempotent
+        if skip_repo.is_skipped(d, "checklist", checklist_type):
+            continue  # admin turned this one OFF for the day (Feed toggle)
         timing = timing_repo.get_timing(checklist_type, d)
         if not timing or now < timing.release_at:
             continue

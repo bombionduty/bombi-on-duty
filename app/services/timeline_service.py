@@ -159,10 +159,14 @@ def build(d: date) -> list[dict]:
         })
 
     # Shift reminders + recaps target a role / the whole group, not one person,
-    # so they aren't individually reassignable here.
+    # so they aren't individually reassignable here. Every notification can be
+    # toggled OFF for the day, though.
+    from app.repositories import skip_repo
     for e in events:
         e.setdefault("reassignable", False)
         e.setdefault("staff_id", "")
+        e["can_toggle"] = True
+        e["skipped"] = skip_repo.is_skipped(d, e["kind"], e["ref"])
 
     events.sort(key=lambda e: (e["time"], e["label"]))
     return events

@@ -69,14 +69,27 @@ def _this_week_occurrence(weekday: str, ref: date) -> date | None:
     return monday + timedelta(days=idx)
 
 
-def _suppressed(date_iso) -> bool:
-    """Weekly checklists (incl. the General Cleaning sheet) don't run on an
-    optional half-day (Shift B) — the store isn't scheduled for them."""
-    from app.repositories import schedule_repo
+def _suppressed(inst) -> bool:
+    """Whether this instance must NOT fire today. Accepts an instance dict (so it
+    can check the admin's per-day Feed on/off switch) or a bare date string.
+
+    Suppressed when the day is an optional half-day (Shift B — the General
+    Cleaning / weekly checklists aren't scheduled), or the admin turned this exact
+    checklist OFF for the day from the Feed."""
+    from app.repositories import schedule_repo, skip_repo
+    date_iso = inst.get("Date") if isinstance(inst, dict) else inst
     try:
-        return schedule_repo.is_shift_b(clock.parse_date(str(date_iso)))
+        d = clock.parse_date(str(date_iso))
     except Exception:
         return False
+    try:
+        if schedule_repo.is_shift_b(d):
+            return True
+    except Exception:
+        pass
+    if isinstance(inst, dict):
+        return skip_repo.is_skipped(d, "weekly", str(inst.get("Instance ID") or ""))
+    return False
 
 
 def _cutoff_at(occ: date, time_str: str, cutoff_str: str) -> str:
@@ -190,7 +203,7 @@ def due_to_post(now: datetime) -> list[dict]:
             continue
         if str(inst.get("Group Message ID")):
             continue
-        if _suppressed(inst.get("Date")):
+        if _suppressed(inst):
             continue  # Shift B half-day — no weekly checklists
         try:
             start = clock.combine(clock.parse_date(str(inst.get("Date"))),
@@ -210,7 +223,7 @@ def reminders_due(now: datetime) -> list[dict]:
     for inst in repo.open_instances():
         if not str(inst.get("Group Message ID")):
             continue  # not posted yet
-        if _suppressed(inst.get("Date")):
+        if _suppressed(inst):
             continue  # Shift B half-day — no weekly reminders
         d = defs.get(str(inst.get("Weekly ID")), {})
         times = [t.strip() for t in str(d.get("Reminder Times") or "").split(",") if t.strip()]
@@ -243,7 +256,7 @@ async def cutoff_if_due(now: datetime) -> list[dict]:
         cut = clock.from_iso(str(inst.get("Cutoff At") or ""))
         if not cut or now < cut:
             continue
-        if _suppressed(inst.get("Date")):
+        if _suppressed(inst):
             continue  # Shift B half-day — never posted, so never "missed"
         repo.update_instance(inst["Instance ID"],
                              {"Status": repo.ST_MISSING, "Missing At Cutoff": True})

@@ -314,6 +314,18 @@ async def admin_timeline_announce(payload: dict, caller: Caller = Depends(curren
     return {"ok": True, "message": msg}
 
 
+@router.post("/admin/timeline/skip")
+async def admin_timeline_skip(payload: dict, caller: Caller = Depends(current_caller)):
+    """Turn one Feed notification ON/OFF for the viewed date only."""
+    _admin(caller)
+    from app.repositories import skip_repo
+    d = clock.parse_date(payload["date"]) if payload.get("date") else clock.today()
+    skip_repo.set_skip(
+        d, str(payload.get("kind", "")), str(payload.get("ref", "")),
+        bool(payload.get("skip")), by=str(caller.tg_id))
+    return {"ok": True, "skipped": bool(payload.get("skip"))}
+
+
 @router.post("/admin/timeline/reassign")
 async def admin_timeline_reassign(payload: dict, caller: Caller = Depends(current_caller)):
     """Reassign one notification's tagged staff for the viewed date only.

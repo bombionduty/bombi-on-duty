@@ -92,13 +92,18 @@ const PAGE_FN = {
       h += `<div class="card"><p class="sub">Nothing is scheduled to post to the group on this date.</p></div>`;
     }
     data.events.forEach((ev, i) => {
-      const pill = ev.sent
-        ? `<span class="pill ok">Sent</span>`
-        : `<span class="pill warn">Upcoming</span>`;
-      let controls = ev.can_announce
-        ? `<button class="ghost" onclick="announceEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}')">📣 Re-announce to group</button>`
+      const pill = ev.skipped
+        ? `<span class="pill bad">Off</span>`
+        : (ev.sent ? `<span class="pill ok">Sent</span>`
+                   : `<span class="pill warn">Upcoming</span>`);
+      // On/off toggle for the day (first control on every row).
+      let controls = ev.can_toggle
+        ? `<button class="${ev.skipped ? "secondary" : "ghost"}" onclick="toggleEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}',${ev.skipped ? "false" : "true"})">${ev.skipped ? "🔔 Turn ON for today" : "🔕 Turn OFF for today"}</button>`
         : "";
-      if (ev.reassignable) {
+      if (!ev.skipped && ev.can_announce) {
+        controls += `<button class="ghost" onclick="announceEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}')">📣 Re-announce to group</button>`;
+      }
+      if (!ev.skipped && ev.reassignable) {
         // Already fired → changing the person also re-posts to the group tagging
         // them. Not fired yet → just set who'll be tagged when it posts.
         const btn = ev.sent ? "💾 Reassign & re-announce" : "💾 Save for today";
@@ -107,7 +112,7 @@ const PAGE_FN = {
           <select id="tlsel_${i}">${staffOpts(ev.staff_id)}</select>
           <button class="secondary" onclick="reassignEvent('${esc(ev.kind)}','${esc(ev.ref)}','${esc(data.date)}',${ev.sent ? "true" : "false"},'tlsel_${i}')">${btn}</button>`;
       }
-      h += `<div class="card">
+      h += `<div class="card"${ev.skipped ? ` style="opacity:.6"` : ""}>
         <div class="row">
           <strong>${esc(ev.at)} · ${ev.icon} ${esc(ev.label)}</strong>
           ${pill}
@@ -673,6 +678,13 @@ async function announceEvent(kind, ref, date) {
     toast(r.message || "Sent to the group ✅");
     go("timeline");  // refresh so the row flips to "Sent"
   } catch (e) { toast(e.message || "Could not send to the group"); }
+}
+async function toggleEvent(kind, ref, date, skip) {
+  try {
+    await api(`/api/admin/timeline/skip`, { method: "POST", body: { kind, ref, date, skip } });
+    toast(skip ? "Turned OFF for today 🔕" : "Turned back ON 🔔");
+    go("timeline");
+  } catch (e) { toast(e.message || "Could not update"); }
 }
 async function reassignEvent(kind, ref, date, announce, selId) {
   const sel = document.getElementById(selId);
