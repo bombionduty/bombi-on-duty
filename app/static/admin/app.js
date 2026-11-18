@@ -145,9 +145,12 @@ const PAGE_FN = {
       h += `<div class="card"><div class="row"><strong>${esc(t.checklist_type)}</strong>
         ${statusPill(t.status)}</div>
         <div class="muted">${esc(t.assigned||"—")} • ${esc(t.result||"")} ${esc(t.evidence||"")}</div>
+        ${verifyLine(t)}
         ${t.missing && t.missing.length ? `<div class="muted">Missing: ${t.missing.map(esc).join(", ")}</div>` : ""}
         <div class="muted">Resolution: ${esc(t.resolution||"")}</div>
         ${canComplete ? `<button onclick="completeAsAdmin('${esc(t.task_id)}')">${label}</button>` : ""}
+        ${t.submitted ? `<button class="ghost" onclick="taskReview('${esc(t.task_id)}')">🔍 Send me evidence &amp; decisions</button>` : ""}
+        ${t.submitted ? `<button class="ghost" onclick="requestReupload('${esc(t.task_id)}')">📸 Ask for re-upload in group</button>` : ""}
         ${(!t.closed && t.task_id) ? `<button class="ghost" onclick="nudgeTask('${esc(t.task_id)}')">📣 Nudge group now</button>` : ""}
         ${t.submitted ? `<button class="ghost" onclick="reannounce('${esc(t.task_id)}')">📣 Re-announce to group</button>` : ""}
         ${(!t.closed && t.task_id) ? `<button class="ghost" onclick="clearTask('${esc(t.task_id)}')">🧹 Mark Not Submitted &amp; clear</button>` : ""}</div>`;
@@ -728,6 +731,19 @@ async function reannounce(taskId) {
     toast(r.message || "Posted to the group ✅");
   } catch (e) { toast(e.message || "Could not post to the group"); }
 }
+async function taskReview(taskId) {
+  try {
+    const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/review`, { method: "POST" });
+    toast(r.message || "Sent to your chat ✅");
+  } catch (e) { toast(e.message || "Could not send"); }
+}
+async function requestReupload(taskId) {
+  if (!confirm("Ask the assigned staff to re-upload a clear photo in the group chat?")) return;
+  try {
+    const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/request-reupload`, { method: "POST" });
+    toast(r.message || "Asked in the group 📸");
+  } catch (e) { toast(e.message || "Could not post to the group"); }
+}
 async function nudgeTask(taskId) {
   try {
     const r = await api(`/api/admin/task/${encodeURIComponent(taskId)}/nudge`, { method: "POST" });
@@ -836,6 +852,19 @@ async function runTest(what) { await api(`/api/admin/test/${what}`, { method:"PO
 /* ---------------------------------------------------------------- utils */
 function val(id) { const e = document.getElementById(id); return e ? e.value.trim() : ""; }
 function isTrue(v) { return String(v).toLowerCase() === "true" || v === true; }
+function verifyLine(t) {
+  // Two-tier verification state + any photo flags, shown per checklist.
+  if (!t.submitted) return "";
+  const flags = [];
+  if (t.flag_blank) flags.push("⚫ blank/dark photo");
+  if (t.flag_duplicate) flags.push("⚠️ possible duplicate");
+  const flagStr = flags.length ? ` • ${flags.join(" • ")}` : "";
+  let state;
+  if (t.admin_verified_by) state = `✅ Final sign-off by ${esc(t.admin_verified_by)}`;
+  else if (t.oic_verified_by) state = `👁 Verified by ${esc(t.oic_verified_by)} — awaiting your final sign-off`;
+  else state = `🟡 Awaiting verification`;
+  return `<div class="muted"><b>Verify:</b> ${state}${flagStr}</div>`;
+}
 function statusPill(s) {
   const map = { "Submitted On Time":"ok", "All Complete":"ok", "Pending":"warn",
     "Submitted Late":"warn", "Not Submitted":"bad", "Closed Day":"warn" };

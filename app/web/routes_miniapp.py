@@ -261,6 +261,8 @@ async def admin_today(date: Optional[str] = None, caller: Caller = Depends(curre
     eff = schedule_repo.resolve(d)  # effective (explicit override, else official)
     tasks = []
     for t in task_repo.for_date(d):
+        tid = str(t.get("Task ID"))
+        ev = evidence_repo.for_task(tid)
         tasks.append({
             "checklist_type": t.get("Checklist Type"),
             "assigned": t.get("Assigned Staff Name"),
@@ -272,6 +274,11 @@ async def admin_today(date: Optional[str] = None, caller: Caller = Depends(curre
             "task_id": t.get("Task ID"),
             "submitted": bool(t.get("Submitted At")),
             "closed": t.get("Original Submission Status") == constants.SUB_CLOSED,
+            # Two-tier verification state + any photo flags, for the status line.
+            "oic_verified_by": t.get("OIC Verified By") or "",
+            "admin_verified_by": t.get("Admin Verified By") or "",
+            "flag_blank": any(as_bool(e.get("Blank Photo")) for e in ev),
+            "flag_duplicate": any(as_bool(e.get("Possible Duplicate")) for e in ev),
         })
     return {
         "date": d.isoformat(),
@@ -540,6 +547,30 @@ async def admin_nudge(task_id: str, caller: Caller = Depends(current_caller)):
     if not ok:
         raise HTTPException(400, msg)
     return {"ok": True, "message": msg}
+
+
+@router.post("/admin/task/{task_id}/review")
+async def admin_task_review(task_id: str, caller: Caller = Depends(current_caller)):
+    """Re-send a task's evidence + decision buttons to the admin (works for any
+    past day), so the admin can approve / ask for re-upload / mark not done."""
+    _admin(caller)
+    task = task_repo.get(task_id)
+    if not task or not task.get("Submitted At"):
+        raise HTTPException(400, "That checklist hasn't been submitted yet.")
+    await summary_service.send_admin_decision(task)
+    return {"ok": True, "message": "Sent the evidence + decisions to your chat. ✅"}
+
+
+@router.post("/admin/task/{task_id}/request-reupload")
+async def admin_task_request_reupload(task_id: str, caller: Caller = Depends(current_caller)):
+    """Post a tagged request to the group asking the assignee to re-post a clear
+    photo (for a flagged/invalid submission on any day)."""
+    _admin(caller)
+    task = task_repo.get(task_id)
+    if not task:
+        raise HTTPException(404, "That checklist no longer exists.")
+    await task_service.request_reupload_in_group(task)
+    return {"ok": True, "message": "Asked the assignee in the group. 📸"}
 
 
 @router.post("/admin/task/{task_id}/clear")

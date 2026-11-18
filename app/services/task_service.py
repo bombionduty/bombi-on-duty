@@ -328,6 +328,23 @@ async def repost_checklist(d: date, checklist_type: str) -> dict | None:
     return task_repo.get(task_id)
 
 
+async def request_reupload_in_group(task: dict) -> None:
+    """Ask the assigned staffer, in the group, to re-post a clear photo for a
+    flagged/invalid submission. The admin then places it into the checklist via
+    'Complete as admin' and verifies it — so a re-upload never silently counts as
+    original on-time proof."""
+    mention = with_mention(task).get("_assignee_mention") \
+        or messages.esc(task.get("Assigned Staff Name") or "staff")
+    await notify.send_message(
+        get_settings().staff_group_chat_id,
+        f"📸 <b>Photo needs re-uploading</b>\n\n{mention}, the "
+        f"{messages.esc(task.get('Checklist Type'))} photo was flagged "
+        f"(unclear / blank / duplicate). Please <b>send a clear photo here in the "
+        f"group</b> so it can be verified. 🙏")
+    if task.get("Task ID"):
+        task_repo.update(str(task["Task ID"]), {"Review Required": True})
+
+
 async def notify_assignment_change(d: date, role: str, old_staff_id: str,
                                    new_staff_id: str) -> None:
     """On a schedule save where the assignee changed: announce it to the group and

@@ -549,14 +549,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             # it — so a re-upload never silently counts as original on-time proof.
             if not is_admin:
                 return await q.answer("Admin only.", show_alert=True)
-            mention = task_service.with_mention(task).get("_assignee_mention") \
-                or messages.esc(task.get("Assigned Staff Name") or "staff")
-            await notify.send_message(group_chat,
-                f"📸 <b>Photo needs re-uploading</b>\n\n{mention}, the "
-                f"{messages.esc(task.get('Checklist Type'))} photo was flagged "
-                f"(unclear / blank / duplicate). Please <b>send a clear photo here in the "
-                f"group</b> so it can be verified. 🙏")
-            task_repo.update(str(rv["Task ID"]), {"Review Required": True})
+            await task_service.request_reupload_in_group(task)
             await notify.edit_message(q.message.chat_id, q.message.message_id,
                 f"📸 <b>Re-upload requested in the group</b> — {messages.esc(task.get('Checklist Type'))} "
                 f"({messages.esc(assignee)}). Once they post it, use <b>Complete as admin</b> on the "

@@ -292,6 +292,31 @@ async def notify_submission(task: dict, ev_status: str) -> None:
         reply_markup=keyboards.admin_review_buttons(rid))
 
 
+async def send_admin_decision(task: dict) -> None:
+    """Push a task's evidence + the admin decision buttons (approve / ask re-upload
+    / mark not done) to the admin on demand — e.g. re-reviewing a previous day's
+    submission from the Today tab."""
+    from app.services import evidence_delivery
+    from app.repositories import evidence_repo
+    admin_id = get_settings().admin_telegram_user_id
+    date_iso, ct = str(task["Date"]), task["Checklist Type"]
+    blanks = [e for e in evidence_repo.for_task(str(task["Task ID"]))
+              if as_bool(e.get("Blank Photo"))]
+    dups = [e for e in evidence_repo.for_task(str(task["Task ID"]))
+            if as_bool(e.get("Possible Duplicate"))]
+    flag = ""
+    if blanks:
+        flag = "\n\n⚫ <b>Blank / dark photo flagged.</b>"
+    elif dups:
+        flag = "\n\n⚠️ <b>Possible duplicate flagged.</b>"
+    review = reviews.add(str(task["Task ID"]), "Admin re-review")
+    await notify.send_message(admin_id, "🔍 <b>Review this submission</b>\n\n"
+                              + _review_brief(task) + flag)
+    await evidence_delivery.send_evidence(date_iso, ct, to_chat_id=admin_id)
+    await notify.send_message(admin_id, "👇 Your decision:",
+                              reply_markup=keyboards.admin_review_buttons(review["Review ID"]))
+
+
 async def send_recovery_update(d: date, task: dict) -> None:
     """After an OIC recovery, append a short resolution message (spec section 28)."""
     settings = get_settings()

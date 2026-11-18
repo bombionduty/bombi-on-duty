@@ -54,6 +54,28 @@ def test_admin_review_buttons_expose_decision_actions():
 
 
 @pytest.mark.asyncio
+async def test_request_reupload_posts_tagged_group_message(monkeypatch):
+    from app.services import task_service as ts
+    sent = []
+
+    async def fake_send(chat, text, **kw):
+        sent.append((chat, text))
+
+    monkeypatch.setattr(ts.notify, "send_message", fake_send)
+    monkeypatch.setattr(ts, "get_settings", lambda: _S())
+    monkeypatch.setattr(ts, "with_mention", lambda t: {"_assignee_mention": "@carol"})
+    updates = {}
+    monkeypatch.setattr(ts.task_repo, "update",
+                        lambda tid, ch: updates.__setitem__(tid, ch))
+
+    await ts.request_reupload_in_group(
+        {"Task ID": "T1", "Checklist Type": "Closing Check", "Assigned Staff Name": "Carol"})
+    assert sent and sent[0][0] == _S.staff_group_chat_id
+    assert "@carol" in sent[0][1] and "re-upload" in sent[0][1].lower()
+    assert updates["T1"]["Review Required"] is True
+
+
+@pytest.mark.asyncio
 async def test_single_tier_when_oic_is_admin(monkeypatch):
     sent = []
 
