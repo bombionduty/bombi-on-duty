@@ -240,24 +240,26 @@ def _review_brief(task: dict) -> str:
 
 
 async def notify_submission(task: dict, ev_status: str) -> None:
-    """On every submission: admin gets an info summary; the OIC gets the
-    evidence pushed automatically with Looks Complete / Mark Incomplete buttons."""
+    """Two-tier sign-off. On every submission BOTH the OIC and the admin get the
+    evidence pushed immediately:
+      * the OIC (Angel) verifies first (tier 1),
+      * the admin gets the evidence right away and can give the FINAL sign-off at
+        any time — including before the OIC, which overrides (the OIC then needn't
+        act). When the OIC verifies, the admin is nudged for the final sign-off.
+    """
     from app.services import evidence_delivery
     admin_id = get_settings().admin_telegram_user_id
-    # The reviewer is the OIC — UNLESS the task is assigned to the OIC (or there's
-    # no OIC), in which case it falls back to the admin.
+    date_iso, ct = str(task["Date"]), task["Checklist Type"]
+    # The OIC reviewer — unless the task is the OIC's own (or there's no OIC), in
+    # which case there's only one tier (the admin).
     target, _target_name, _is_admin_fb = staff_repo.oversight_target(
         task.get("Assigned Telegram User ID"))
-
-    # Admin informational summary (skip if the review already goes to the admin).
-    if target != admin_id:
-        await send_submission_alert(task)
+    oic_is_distinct = target != admin_id
 
     # Detect blank / black-screen live photos on this task (camera not aimed).
     from app.repositories import evidence_repo
     blanks = [e for e in evidence_repo.for_task(str(task["Task ID"]))
               if as_bool(e.get("Blank Photo"))]
-
     flag = ""
     if blanks:
         flag = ("\n\n⚫ <b>BLANK / DARK PHOTO detected</b> — the live camera may not "
@@ -267,21 +269,27 @@ async def notify_submission(task: dict, ev_status: str) -> None:
     elif ev_status == constants.EV_REVIEW:
         flag = "\n\n⚠️ <b>System flag: review recommended.</b>"
 
-    # A blank photo is serious (no real evidence) — always ping the admin directly,
-    # even when the OIC is the one reviewing.
-    if blanks and target != admin_id:
-        await notify.send_message(
-            admin_id,
-            "⚫ <b>Blank / dark photo submitted</b>\n\n" + _review_brief(task)
-            + "\n\nThe live-camera photo looks black/blank — please verify.")
-
     review = reviews.add(task["Task ID"], "Submission review")
-    await notify.send_message(target, "🧐 <b>Please review this submission</b>\n\n"
-                              + _review_brief(task) + flag)
-    await evidence_delivery.send_evidence(str(task["Date"]), task["Checklist Type"],
-                                          to_chat_id=target)
-    await notify.send_message(target, "👇 Tap after checking the photos above:",
-                              reply_markup=keyboards.review_buttons(review["Review ID"]))
+    rid = review["Review ID"]
+
+    # Tier 1 — the OIC verifies first.
+    if oic_is_distinct:
+        await notify.send_message(target, "🧐 <b>Please review this submission</b>\n\n"
+                                  + _review_brief(task) + flag)
+        await evidence_delivery.send_evidence(date_iso, ct, to_chat_id=target)
+        await notify.send_message(target, "👇 Tap after checking the photos above:",
+                                  reply_markup=keyboards.review_buttons(rid))
+
+    # Admin — gets the evidence immediately and can give the final sign-off (or
+    # verify now to skip the OIC). One tier only when the OIC is the admin.
+    admin_intro = (("🧾 <b>New submission</b> — Angel will verify first; you can give the "
+                    "final sign-off now, or wait for hers.\n\n") if oic_is_distinct
+                   else "🧐 <b>Please review this submission</b>\n\n") + _review_brief(task) + flag
+    await notify.send_message(admin_id, admin_intro)
+    await evidence_delivery.send_evidence(date_iso, ct, to_chat_id=admin_id)
+    await notify.send_message(
+        admin_id, "👇 Tap after checking the photos above:",
+        reply_markup=keyboards.review_buttons(rid))
 
 
 async def send_recovery_update(d: date, task: dict) -> None:

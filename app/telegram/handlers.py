@@ -499,24 +499,49 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         if action == "ok":
-            reviews.resolve(review_id, uid, "Looks Complete")
-            task_repo.update(str(rv["Task ID"]),
-                             {"Evidence Status": constants.EV_COMPLETE, "Review Required": False})
-            # Update the tapped review message.
+            ct = task.get("Checklist Type")
+            assignee = task.get("Assigned Staff Name") or "staff"
+            oic = staff_repo.current_oic()
+            if is_admin:
+                # Final sign-off (and the override path when the OIC hasn't acted).
+                if task.get("Admin Verified At"):
+                    return await q.answer("Already signed off ✅")
+                override = not task.get("OIC Verified At")
+                task_repo.update(str(rv["Task ID"]), {
+                    "Admin Verified By": reviewer_name, "Admin Verified At": clock.iso(clock.now()),
+                    "Evidence Status": constants.EV_COMPLETE, "Review Required": False})
+                reviews.resolve(review_id, uid, "Admin Verified")
+                await notify.edit_message(q.message.chat_id, q.message.message_id,
+                    f"✅ <b>Final sign-off by Admin</b> — {messages.esc(ct)} ({messages.esc(assignee)})")
+                await notify.send_message(group_chat,
+                    f"✅ {messages.esc(ct)} evidence — <b>final sign-off by Admin</b> "
+                    f"({messages.esc(assignee)}).")
+                # If the admin went first, the OIC needn't verify.
+                if override and oic and str(oic.get("Telegram User ID")) \
+                        and str(oic.get("Telegram User ID")) != str(uid):
+                    await notify.send_message(oic["Telegram User ID"],
+                        f"✅ Admin already gave the final sign-off on {messages.esc(ct)} "
+                        f"({messages.esc(assignee)}) — no need to verify.")
+                return await q.answer("Final sign-off ✅")
+
+            # OIC tier-1 verification → hand the final sign-off to the admin.
+            task_repo.update(str(rv["Task ID"]), {
+                "OIC Verified By": reviewer_name, "OIC Verified At": clock.iso(clock.now()),
+                "Evidence Status": constants.EV_COMPLETE, "Review Required": False})
+            reviews.resolve(review_id, uid, "OIC Verified")
             await notify.edit_message(q.message.chat_id, q.message.message_id,
-                f"✅ <b>Evidence reviewed — looks complete</b>\n"
-                f"By {reviewer_name} ({role_word})")
-            # Tell the group it was reviewed.
+                f"✅ <b>Verified by {messages.esc(reviewer_name)}</b> (Store OIC) — "
+                f"sent to Admin for final sign-off")
             await notify.send_message(group_chat,
-                f"👁 {task.get('Checklist Type')} evidence reviewed by "
-                f"<b>{reviewer_name}</b> ({role_word}) — ✅ looks complete.")
-            # If the OIC reviewed it, privately notify the admin.
-            if not is_admin:
+                f"👁 {messages.esc(ct)} evidence verified by "
+                f"<b>{messages.esc(reviewer_name)}</b> (Store OIC).")
+            if not task.get("Admin Verified At"):
                 await notify.send_message(admin_id,
-                    f"👁 Store OIC <b>{reviewer_name}</b> reviewed the "
-                    f"{task.get('Checklist Type')} evidence "
-                    f"({task.get('Assigned Staff Name')}) — ✅ marked complete.")
-            return await q.answer("Marked complete ✅")
+                    f"👁 Store OIC <b>{messages.esc(reviewer_name)}</b> verified the "
+                    f"{messages.esc(ct)} evidence ({messages.esc(assignee)}).\n\n"
+                    f"👇 Your <b>final sign-off</b> (tap Resend Evidence to see the photos):",
+                    reply_markup=keyboards.review_buttons(review_id))
+            return await q.answer("Verified ✅ — sent to Admin")
 
         if action == "follow":
             # Ask the reviewer to describe the issue; capture their next message.

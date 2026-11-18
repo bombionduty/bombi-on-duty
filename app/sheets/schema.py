@@ -84,7 +84,9 @@ HEADERS: dict[str, list[str]] = {
         "Submitted At", "Original Submission Status", "Checklist Result",
         "Evidence Status", "Resolution Status", "Not Submitted At",
         "Review Required", "Recovered By Staff ID", "Recovered By Telegram User ID",
-        "Recovered At", "Current Version", "Created At", "Updated At",
+        "Recovered At",
+        "OIC Verified By", "OIC Verified At", "Admin Verified By", "Admin Verified At",
+        "Current Version", "Created At", "Updated At",
     ],
     TASK_ITEMS: [
         "Task Item ID", "Task ID", "Template Item ID", "Item Name",
