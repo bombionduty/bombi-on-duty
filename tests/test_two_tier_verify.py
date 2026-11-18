@@ -43,6 +43,16 @@ async def test_submission_pushes_evidence_and_buttons_to_both(monkeypatch):
     assert 555 in ev_targets and 999 in ev_targets
 
 
+def test_admin_review_buttons_expose_decision_actions():
+    from app.telegram import keyboards
+    kb = keyboards.admin_review_buttons("RV1")
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert "rev:ok:RV1" in datas        # approve / final sign-off
+    assert "rev:reup:RV1" in datas      # ask for re-upload in group
+    assert "rev:notdone:RV1" in datas   # mark not done
+    assert "rev:view:RV1" in datas      # resend evidence
+
+
 @pytest.mark.asyncio
 async def test_single_tier_when_oic_is_admin(monkeypatch):
     sent = []

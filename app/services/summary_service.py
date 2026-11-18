@@ -289,7 +289,7 @@ async def notify_submission(task: dict, ev_status: str) -> None:
     await evidence_delivery.send_evidence(date_iso, ct, to_chat_id=admin_id)
     await notify.send_message(
         admin_id, "👇 Tap after checking the photos above:",
-        reply_markup=keyboards.review_buttons(rid))
+        reply_markup=keyboards.admin_review_buttons(rid))
 
 
 async def send_recovery_update(d: date, task: dict) -> None:

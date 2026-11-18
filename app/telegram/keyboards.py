@@ -65,6 +65,18 @@ def review_buttons(review_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+def admin_review_buttons(review_id: str) -> InlineKeyboardMarkup:
+    """Admin decision set for a submission (used for the final sign-off and for
+    flagged photos): approve, ask the staff to re-post the photo in the group,
+    or reject the submission as not done."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Approve / Final sign-off", callback_data=f"rev:ok:{review_id}")],
+        [InlineKeyboardButton("📸 Ask for re-upload in group", callback_data=f"rev:reup:{review_id}")],
+        [InlineKeyboardButton("🔴 Mark not done", callback_data=f"rev:notdone:{review_id}")],
+        [InlineKeyboardButton("👁 Resend Evidence", callback_data=f"rev:view:{review_id}")],
+    ])
+
+
 def announcement_ack_button(announcement_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("✅ Noted", callback_data=f"ack:{announcement_id}")]]

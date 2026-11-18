@@ -540,8 +540,51 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                     f"👁 Store OIC <b>{messages.esc(reviewer_name)}</b> verified the "
                     f"{messages.esc(ct)} evidence ({messages.esc(assignee)}).\n\n"
                     f"👇 Your <b>final sign-off</b> (tap Resend Evidence to see the photos):",
-                    reply_markup=keyboards.review_buttons(review_id))
+                    reply_markup=keyboards.admin_review_buttons(review_id))
             return await q.answer("Verified ✅ — sent to Admin")
+
+        if action == "reup":
+            # Admin asks the assignee to re-post the photo in the group. The admin
+            # then places it into the checklist via "Complete as admin" and verifies
+            # it — so a re-upload never silently counts as original on-time proof.
+            if not is_admin:
+                return await q.answer("Admin only.", show_alert=True)
+            mention = task_service.with_mention(task).get("_assignee_mention") \
+                or messages.esc(task.get("Assigned Staff Name") or "staff")
+            await notify.send_message(group_chat,
+                f"📸 <b>Photo needs re-uploading</b>\n\n{mention}, the "
+                f"{messages.esc(task.get('Checklist Type'))} photo was flagged "
+                f"(unclear / blank / duplicate). Please <b>send a clear photo here in the "
+                f"group</b> so it can be verified. 🙏")
+            task_repo.update(str(rv["Task ID"]), {"Review Required": True})
+            await notify.edit_message(q.message.chat_id, q.message.message_id,
+                f"📸 <b>Re-upload requested in the group</b> — {messages.esc(task.get('Checklist Type'))} "
+                f"({messages.esc(assignee)}). Once they post it, use <b>Complete as admin</b> on the "
+                f"Today tab to add it and verify.")
+            return await q.answer("Asked in the group 📸")
+
+        if action == "notdone":
+            # Reject the submission: the evidence is invalid/missing and can't be
+            # recovered (e.g. a blank closing photo).
+            if not is_admin:
+                return await q.answer("Admin only.", show_alert=True)
+            task_repo.update(str(rv["Task ID"]), {
+                "Original Submission Status": constants.SUB_NOT_SUBMITTED,
+                "Not Submitted At": clock.iso(clock.now()),
+                "Evidence Status": constants.EV_MISSING,
+                "Checklist Result": "",
+                "Review Required": False,
+                "Resolution Status": constants.RES_CLOSED_NO_RECOVERY,
+                "Admin Verified By": reviewer_name, "Admin Verified At": clock.iso(clock.now()),
+            })
+            reviews.resolve(review_id, uid, "Marked Not Done")
+            await notify.edit_message(q.message.chat_id, q.message.message_id,
+                f"🔴 <b>Marked Not Done by Admin</b> — {messages.esc(task.get('Checklist Type'))} "
+                f"({messages.esc(assignee)}).")
+            await notify.send_message(group_chat,
+                f"🔴 {messages.esc(task.get('Checklist Type'))} ({messages.esc(assignee)}) was "
+                f"marked <b>Not Done</b> by Admin — the evidence was invalid or missing.")
+            return await q.answer("Marked not done 🔴")
 
         if action == "follow":
             # Ask the reviewer to describe the issue; capture their next message.
