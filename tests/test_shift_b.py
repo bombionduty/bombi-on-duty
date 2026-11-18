@@ -9,6 +9,7 @@ from datetime import date, time
 from app import constants
 from app.repositories import timing_repo, schedule_repo
 from app.services import weekly_service
+from app.services import schedule_service as ss
 from app.services import timeline_service as tl
 
 
@@ -68,6 +69,22 @@ def test_normal_day_unchanged(monkeypatch):
     monkeypatch.setattr(schedule_repo, "is_shift_b", lambda dd: False)
     assert timing_repo.get_timing(constants.CHECK_HANDOVER, D) is not None
     assert timing_repo.get_timing(constants.CHECK_OPENING, D).release_at.strftime("%H:%M") == "11:00"
+
+
+# --------------------------------------------------------------- pre-check
+def test_precheck_ignores_handover_and_closer_on_shift_b(monkeypatch):
+    monkeypatch.setattr(ss.schedule_repo, "resolve",
+                        lambda d: {"status": "", "shift_mode": constants.SHIFT_B})
+    monkeypatch.setattr(ss.schedule_repo, "assigned_staff_id",
+                        lambda d, role: "S1" if role == "opener" else "")
+    monkeypatch.setattr(ss.staff_repo, "get_by_staff_id",
+                        lambda sid: {"Active": True, "Telegram User ID": 100})
+    monkeypatch.setattr(ss.staff_repo, "current_oic", lambda: {"Staff ID": "S2"})
+    # Handover has no timing (suppressed); opening + closing do.
+    monkeypatch.setattr(ss.timing_repo, "get_timing",
+                        lambda ct, d: None if ct == constants.CHECK_HANDOVER else object())
+    # No "No timing configured for Opener Handover" and no "No Closer assigned".
+    assert ss.precheck_problems(D) == []
 
 
 # --------------------------------------------------------------- weekly

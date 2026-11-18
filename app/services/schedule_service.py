@@ -27,7 +27,11 @@ def precheck_problems(d: date) -> list[str]:
     if str(eff.get("status")) == constants.DAY_CLOSED:
         return []  # closed day is fine
 
-    for responsible, label in (("opener", "Opener"), ("closer", "Closer")):
+    # On a Shift B half-day the opener also closes (no separate closer) and there
+    # is NO Opener Handover, so neither should be required or flagged.
+    shift_b = str(eff.get("shift_mode")) == constants.SHIFT_B
+    roles = (("opener", "Opener"),) if shift_b else (("opener", "Opener"), ("closer", "Closer"))
+    for responsible, label in roles:
         sid = schedule_repo.assigned_staff_id(d, responsible)
         if not sid:
             problems.append(f"No {label} assigned.")
@@ -41,7 +45,11 @@ def precheck_problems(d: date) -> list[str]:
     if not staff_repo.current_oic():
         problems.append("No Store OIC is configured.")
 
-    for ct in constants.CHECKLIST_TYPES:
+    # Only the checklists that actually run that day (Handover is suppressed on
+    # Shift B) need timing configured.
+    types = ([constants.CHECK_OPENING, constants.CHECK_CLOSING] if shift_b
+             else constants.CHECKLIST_TYPES)
+    for ct in types:
         if not timing_repo.get_timing(ct, d):
             problems.append(f"No timing configured for {ct}.")
     return problems
