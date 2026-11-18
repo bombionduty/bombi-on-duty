@@ -126,35 +126,25 @@ class SheetTable:
             return list(self._cache)
 
     def _read_records(self) -> list[dict]:
-        """Read all rows, resiliently. get_all_records(expected_headers=...) throws
-        hard if the physical header row doesn't line up exactly with the schema
-        (e.g. a column add that got rate-limited mid-write, or a duplicate header)
-        — and that would 500 every read of the sheet. So: retry transient API
-        errors, and on a header-shape error re-sync headers and fall back to a
-        plain values read keyed by the live header row (the source of truth)."""
-        last_exc = None
-        for attempt in range(3):
+        """Read all rows, resiliently but CHEAPLY (this runs on every uncached
+        read). Read by the LIVE header row (no expected_headers, so a column add
+        that got rate-limited mid-write can't make it throw). One quota retry.
+        On any shape error (e.g. a duplicate header) fall back once to a plain
+        values read. No header writes happen here — that's the ws property's job."""
+        try:
+            return self.ws.get_all_records()  # keyed by the sheet's own header row
+        except gspread.exceptions.APIError:   # transient quota / 5xx — one retry
+            time.sleep(0.8)
             try:
-                return self.ws.get_all_records(expected_headers=self.headers)
-            except gspread.exceptions.APIError as e:  # quota / 5xx — back off + retry
-                last_exc = e
-                time.sleep(0.6 * (attempt + 1))
-            except Exception as e:  # header-shape / duplicate — re-sync then fall back
-                last_exc = e
-                try:
-                    self._ensure_headers()
-                except Exception:
-                    pass
-                try:
-                    return self._read_by_values()
-                except Exception as e2:
-                    last_exc = e2
-                    time.sleep(0.4 * (attempt + 1))
-        # Last resort: a plain values read (never let a read hard-fail the app).
+                return self.ws.get_all_records()
+            except Exception:
+                pass
+        except Exception:                     # duplicate / blank header → fallback
+            pass
         try:
             return self._read_by_values()
-        except Exception:
-            log.exception("Could not read %r (giving up): %s", self.tab_name, last_exc)
+        except Exception as e:
+            log.exception("Could not read %r: %s", self.tab_name, e)
             return []
 
     def _read_by_values(self) -> list[dict]:
@@ -213,7 +203,7 @@ class SheetTable:
         with self._lock:
             order = self._order()
             keys = {str(k) for k in changes_by_key}
-            records = self.ws.get_all_records(expected_headers=self.headers)
+            records = self._read_records()  # ordered, resilient to header mismatch
             cells = []
             for idx, row in enumerate(records):
                 key = str(row.get(col, ""))
@@ -234,7 +224,7 @@ class SheetTable:
         """Update the FIRST row where row[col] == value. Returns True if found."""
         with self._lock:
             sval = str(value)
-            records = self.ws.get_all_records(expected_headers=self.headers)
+            records = self._read_records()  # ordered, resilient to header mismatch
             for idx, row in enumerate(records):
                 if str(row.get(col, "")) == sval:
                     sheet_row = idx + 2  # +1 header, +1 to 1-based
