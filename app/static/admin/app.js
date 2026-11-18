@@ -126,12 +126,22 @@ const PAGE_FN = {
 
   /* -------------------------------------------------------------- TODAY */
   async today(app) {
-    const d = await api(`/api/admin/today?date=${today()}`);
+    const dateStr = today();
     const todayStr = new Date().toISOString().slice(0, 10);
-    let h = `<h1>Today — ${esc(d.date)}</h1>
-      <div class="card"><label>View / complete checklists for date</label>
-        <input type="date" value="${esc(d.date)}" onchange="setAdminDate(this.value)"/>
-        ${d.date !== todayStr ? `<button class="ghost" onclick="setAdminDate('${todayStr}')">↩︎ Back to today</button>` : ""}</div>
+    const picker = `<div class="card"><label>View / complete checklists for date</label>
+        <input type="date" value="${esc(dateStr)}" onchange="setAdminDate(this.value)"/>
+        ${dateStr !== todayStr ? `<button class="ghost" onclick="setAdminDate('${todayStr}')">↩︎ Back to today</button>` : ""}</div>`;
+    let d;
+    try {
+      d = await api(`/api/admin/today?date=${dateStr}`);
+    } catch (e) {
+      // Keep the date picker on screen so a bad date doesn't trap the user.
+      app.innerHTML = `<h1>Today — ${esc(dateStr)}</h1>${picker}
+        <div class="card"><p class="sub">Couldn't load this date: ${esc(e.message || "error")}.
+        Pick another date above.</p></div>`;
+      return;
+    }
+    let h = `<h1>Today — ${esc(d.date)}</h1>${picker}
       <p class="sub">Status: ${esc(d.day_status || "—")} • Opener: ${esc(d.opener||"—")} • Closer: ${esc(d.closer||"—")}</p>`;
     if (!d.tasks.length) {
       h += `<div class="card"><p class="sub">No checklists have been released for this date yet.</p></div>`;

@@ -258,35 +258,62 @@ async def whoami(caller: Caller = Depends(current_caller)):
 async def admin_today(date: Optional[str] = None, caller: Caller = Depends(current_caller)):
     _admin(caller)
     d = clock.parse_date(date) if date else clock.today()
-    eff = schedule_repo.resolve(d)  # effective (explicit override, else official)
+    try:
+        eff = schedule_repo.resolve(d)  # effective (explicit override, else official)
+    except Exception:
+        log.exception("admin_today: schedule resolve failed for %s", d)
+        eff = {}
+    try:
+        rows = task_repo.for_date(d)
+    except Exception:
+        log.exception("admin_today: task list failed for %s", d)
+        rows = []
+
     tasks = []
-    for t in task_repo.for_date(d):
-        tid = str(t.get("Task ID"))
-        ev = evidence_repo.for_task(tid)
-        tasks.append({
-            "checklist_type": t.get("Checklist Type"),
-            "assigned": t.get("Assigned Staff Name"),
-            "status": t.get("Original Submission Status"),
-            "result": t.get("Checklist Result"),
-            "evidence": t.get("Evidence Status"),
-            "resolution": t.get("Resolution Status"),
-            "missing": task_service.missing_items(t["Task ID"]),
-            "task_id": t.get("Task ID"),
-            "submitted": bool(t.get("Submitted At")),
-            "closed": t.get("Original Submission Status") == constants.SUB_CLOSED,
-            # Two-tier verification state + any photo flags, for the status line.
-            "oic_verified_by": t.get("OIC Verified By") or "",
-            "admin_verified_by": t.get("Admin Verified By") or "",
-            "flag_blank": any(as_bool(e.get("Blank Photo")) for e in ev),
-            "flag_duplicate": any(as_bool(e.get("Possible Duplicate")) for e in ev),
-        })
+    for t in rows:
+        # One bad/corrupted row (or evidence read) must never blank the whole tab.
+        try:
+            tid = str(t.get("Task ID"))
+            try:
+                ev = evidence_repo.for_task(tid)
+            except Exception:
+                ev = []
+            try:
+                missing = task_service.missing_items(tid)
+            except Exception:
+                missing = []
+            tasks.append({
+                "checklist_type": t.get("Checklist Type"),
+                "assigned": t.get("Assigned Staff Name"),
+                "status": t.get("Original Submission Status"),
+                "result": t.get("Checklist Result"),
+                "evidence": t.get("Evidence Status"),
+                "resolution": t.get("Resolution Status"),
+                "missing": missing,
+                "task_id": t.get("Task ID"),
+                "submitted": bool(t.get("Submitted At")),
+                "closed": t.get("Original Submission Status") == constants.SUB_CLOSED,
+                # Two-tier verification state + any photo flags, for the status line.
+                "oic_verified_by": t.get("OIC Verified By") or "",
+                "admin_verified_by": t.get("Admin Verified By") or "",
+                "flag_blank": any(as_bool(e.get("Blank Photo")) for e in ev),
+                "flag_duplicate": any(as_bool(e.get("Possible Duplicate")) for e in ev),
+            })
+        except Exception:
+            log.exception("admin_today: skipping bad task row on %s", d)
+            continue
+
+    try:
+        recoveries = recovery.for_date(d)
+    except Exception:
+        recoveries = []
     return {
         "date": d.isoformat(),
         "day_status": eff.get("status"),
         "opener": eff.get("opener_name"),
         "closer": eff.get("closer_name"),
         "tasks": tasks,
-        "recoveries": recovery.for_date(d),
+        "recoveries": recoveries,
     }
 
 
