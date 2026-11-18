@@ -75,6 +75,10 @@ const PAGE_FN = {
     const staffOpts = (sel) => `<option value="">— unassigned —</option>` + staff.map(s =>
       `<option value="${esc(s["Staff ID"])}" ${sel === s["Staff ID"] ? "selected" : ""}>${esc(s["Staff Name"])}</option>`).join("");
     const todayStr = new Date().toISOString().slice(0, 10);
+    if (data.error) {
+      app.innerHTML = `<h1>Feed</h1><div class="card"><p class="sub">Couldn't load the feed: ${esc(data.error)}</p></div>`;
+      return;
+    }
     const shiftBadge = data.day_closed
       ? `<p class="sub" style="color:#b00;font-weight:700">🚫 Store CLOSED this day</p>`
       : (data.shift_mode === "B"

@@ -119,11 +119,56 @@ class SheetTable:
                 and (now - self._cache_at) < _CACHE_TTL
             ):
                 return list(self._cache)
-            records = self.ws.get_all_records(expected_headers=self.headers)
+            records = self._read_records()
             # get_all_records returns dicts keyed by header.
             self._cache = [dict(r) for r in records]
             self._cache_at = now
             return list(self._cache)
+
+    def _read_records(self) -> list[dict]:
+        """Read all rows, resiliently. get_all_records(expected_headers=...) throws
+        hard if the physical header row doesn't line up exactly with the schema
+        (e.g. a column add that got rate-limited mid-write, or a duplicate header)
+        — and that would 500 every read of the sheet. So: retry transient API
+        errors, and on a header-shape error re-sync headers and fall back to a
+        plain values read keyed by the live header row (the source of truth)."""
+        last_exc = None
+        for attempt in range(3):
+            try:
+                return self.ws.get_all_records(expected_headers=self.headers)
+            except gspread.exceptions.APIError as e:  # quota / 5xx — back off + retry
+                last_exc = e
+                time.sleep(0.6 * (attempt + 1))
+            except Exception as e:  # header-shape / duplicate — re-sync then fall back
+                last_exc = e
+                try:
+                    self._ensure_headers()
+                except Exception:
+                    pass
+                try:
+                    return self._read_by_values()
+                except Exception as e2:
+                    last_exc = e2
+                    time.sleep(0.4 * (attempt + 1))
+        # Last resort: a plain values read (never let a read hard-fail the app).
+        try:
+            return self._read_by_values()
+        except Exception:
+            log.exception("Could not read %r (giving up): %s", self.tab_name, last_exc)
+            return []
+
+    def _read_by_values(self) -> list[dict]:
+        """Read every row as plain values and key by the live header row. Tolerates
+        duplicate/extra headers (last wins) and short rows (padded with '')."""
+        values = self.ws.get_all_values()
+        if not values:
+            return []
+        header = values[0]
+        out = []
+        for raw in values[1:]:
+            row = list(raw) + [""] * (len(header) - len(raw))
+            out.append({header[i]: row[i] for i in range(len(header))})
+        return out
 
     def find(self, col: str, value: Any) -> dict | None:
         sval = str(value)

@@ -338,15 +338,23 @@ async def admin_timeline(date: Optional[str] = None, caller: Caller = Depends(cu
     it's already been delivered."""
     _admin(caller)
     from app.services import timeline_service
-    d = clock.parse_date(date) if date else clock.today()
-    eff = schedule_repo.resolve(d)
-    return {
-        "date": d.isoformat(),
-        "shift_mode": eff.get("shift_mode"),
-        "duty_start": eff.get("duty_start"),
-        "day_closed": str(eff.get("status")) == constants.DAY_CLOSED,
-        "events": timeline_service.build(d),
-    }
+    try:
+        d = clock.parse_date(date) if date else clock.today()
+    except Exception:
+        d = clock.today()
+    try:
+        eff = schedule_repo.resolve(d)
+        return {
+            "date": d.isoformat(),
+            "shift_mode": eff.get("shift_mode"),
+            "duty_start": eff.get("duty_start"),
+            "day_closed": str(eff.get("status")) == constants.DAY_CLOSED,
+            "events": timeline_service.build(d),
+        }
+    except Exception as e:
+        log.exception("admin_timeline failed for %s", date)
+        return {"date": d.isoformat(), "shift_mode": "", "duty_start": "",
+                "day_closed": False, "events": [], "error": f"{e.__class__.__name__}: {e}"}
 
 
 @router.post("/admin/timeline/announce")
