@@ -813,6 +813,7 @@ async def admin_evidence(date: str, caller: Caller = Depends(current_caller)):
             "metadata_result": e.get("Metadata Result"),
             "review_status": e.get("Review Status"),
             "possible_duplicate": as_bool(e.get("Possible Duplicate")),
+            "blank_photo": as_bool(e.get("Blank Photo")),
             "is_recovery": bool(e.get("Submitted On Behalf Of Staff ID")),
         })
     return {"date": d.isoformat(), "evidence": out}

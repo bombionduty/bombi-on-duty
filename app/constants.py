@@ -71,6 +71,7 @@ META_UNAVAILABLE = "Metadata Unavailable"
 META_MISMATCH = "Metadata Mismatch"
 META_REVIEW = "Review Recommended"
 META_DUPLICATE = "Possible Duplicate"
+META_BLANK = "Blank / Dark Photo"   # near-black or blank — likely camera not aimed
 
 # ---- Schedule status ----
 DAY_OPEN = "OPEN"

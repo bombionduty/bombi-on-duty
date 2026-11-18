@@ -43,7 +43,9 @@ def _caption(ev: dict) -> str:
         uname = uploader.get("Staff Name") if uploader else "OIC"
         base = f"{label} — {assignee} (recovered by {uname} as OIC)"
 
-    if as_bool(ev.get("Possible Duplicate")):
+    if as_bool(ev.get("Blank Photo")):
+        base += " ⚫ BLANK/DARK — check"
+    elif as_bool(ev.get("Possible Duplicate")):
         base += " ⚠️ possible duplicate"
     return f"{base} — {when}"
 

@@ -253,11 +253,27 @@ async def notify_submission(task: dict, ev_status: str) -> None:
     if target != admin_id:
         await send_submission_alert(task)
 
+    # Detect blank / black-screen live photos on this task (camera not aimed).
+    from app.repositories import evidence_repo
+    blanks = [e for e in evidence_repo.for_task(str(task["Task ID"]))
+              if as_bool(e.get("Blank Photo"))]
+
     flag = ""
-    if ev_status == constants.EV_DUPLICATE:
+    if blanks:
+        flag = ("\n\n⚫ <b>BLANK / DARK PHOTO detected</b> — the live camera may not "
+                "have been aimed at the task. Please check the photos carefully.")
+    elif ev_status == constants.EV_DUPLICATE:
         flag = "\n\n⚠️ <b>Possible duplicate image — please check carefully.</b>"
     elif ev_status == constants.EV_REVIEW:
         flag = "\n\n⚠️ <b>System flag: review recommended.</b>"
+
+    # A blank photo is serious (no real evidence) — always ping the admin directly,
+    # even when the OIC is the one reviewing.
+    if blanks and target != admin_id:
+        await notify.send_message(
+            admin_id,
+            "⚫ <b>Blank / dark photo submitted</b>\n\n" + _review_brief(task)
+            + "\n\nThe live-camera photo looks black/blank — please verify.")
 
     review = reviews.add(task["Task ID"], "Submission review")
     await notify.send_message(target, "🧐 <b>Please review this submission</b>\n\n"

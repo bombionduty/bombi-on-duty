@@ -100,6 +100,7 @@ HEADERS: dict[str, list[str]] = {
         "Submitted On Behalf Of Staff ID", "Uploaded At", "Capture Source",
         "EXIF Date", "Metadata Result", "Exact Hash", "Perceptual Hash",
         "Possible Duplicate", "Matching Evidence ID", "Review Status",
+        "Blank Photo",
     ],
     OIC_RECOVERIES: [
         "Recovery ID", "Task ID", "Operating Date", "Original Assigned Staff ID",

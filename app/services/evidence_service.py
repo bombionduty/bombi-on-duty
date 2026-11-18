@@ -44,6 +44,27 @@ def _open_image(data: bytes) -> Image.Image | None:
         return None
 
 
+def _blank_or_dark(img: Image.Image | None) -> bool:
+    """True when a photo is essentially a black screen or a featureless blank —
+    i.e. the camera wasn't aimed at anything (staff forgot to actually shoot the
+    task). Detected by very low average brightness OR almost no variation.
+
+    Thresholds are deliberately conservative so a dim-but-real photo still passes.
+    """
+    if img is None:
+        return False
+    try:
+        from PIL import ImageStat
+        gray = img.convert("L")
+        stat = ImageStat.Stat(gray)
+        mean = stat.mean[0]            # 0 (black) .. 255 (white)
+        stddev = stat.stddev[0]        # ~0 means a flat, featureless image
+        # Near-black, or a flat blank frame with essentially no detail.
+        return mean < 16 or stddev < 4
+    except Exception:
+        return False
+
+
 def _perceptual_hash(img: Image.Image | None) -> str:
     if img is None:
         return ""
@@ -193,6 +214,15 @@ def process_and_store(
     elif meta_result == constants.META_REVIEW:
         review_status = "Review Recommended"
 
+    # Blank / black-screen detection for live-camera proof (staff forgot to aim
+    # the camera at the task). Check the ORIGINAL frame so the footer text can't
+    # mask an all-black photo. This takes precedence — it's the most useful flag.
+    blank = (item_type == constants.ITEM_LIVE_PHOTO
+             and _blank_or_dark(_open_image(data) or img))
+    if blank:
+        meta_result = constants.META_BLANK
+        review_status = "Review Required"
+
     # Save to the configured storage backend (local disk by default).
     up = storage_service.save_bytes(
         stored_bytes, filename, mime_type, operating_date, str(task["Checklist Type"])
@@ -221,8 +251,10 @@ def process_and_store(
         "Possible Duplicate": bool(duplicate),
         "Matching Evidence ID": duplicate.get("Evidence ID", "") if duplicate else "",
         "Review Status": review_status,
+        "Blank Photo": bool(blank),
     })
     row["_duplicate_of"] = duplicate  # convenience for caller alerts
+    row["_blank"] = bool(blank)
     return row
 
 
