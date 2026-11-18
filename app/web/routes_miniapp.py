@@ -257,7 +257,21 @@ async def whoami(caller: Caller = Depends(current_caller)):
 @router.get("/admin/today")
 async def admin_today(date: Optional[str] = None, caller: Caller = Depends(current_caller)):
     _admin(caller)
-    d = clock.parse_date(date) if date else clock.today()
+    try:
+        d = clock.parse_date(date) if date else clock.today()
+    except Exception:
+        d = clock.today()
+    try:
+        return _build_today(d)
+    except Exception as e:
+        # Never 500 the whole tab — surface the reason so the UI can show it.
+        log.exception("admin_today failed for %s", date)
+        return {"date": d.isoformat(), "day_status": "", "opener": "", "closer": "",
+                "tasks": [], "recoveries": [],
+                "error": f"{e.__class__.__name__}: {e}"}
+
+
+def _build_today(d) -> dict:
     try:
         eff = schedule_repo.resolve(d)  # effective (explicit override, else official)
     except Exception:

@@ -141,6 +141,11 @@ const PAGE_FN = {
         Pick another date above.</p></div>`;
       return;
     }
+    if (d.error) {
+      app.innerHTML = `<h1>Today — ${esc(d.date)}</h1>${picker}
+        <div class="card"><p class="sub">Couldn't load this date: ${esc(d.error)}</p></div>`;
+      return;
+    }
     let h = `<h1>Today — ${esc(d.date)}</h1>${picker}
       <p class="sub">Status: ${esc(d.day_status || "—")} • Opener: ${esc(d.opener||"—")} • Closer: ${esc(d.closer||"—")}</p>`;
     if (!d.tasks.length) {

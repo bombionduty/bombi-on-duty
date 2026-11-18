@@ -50,9 +50,9 @@ async function api(path, { method = "GET", body = null, form = null } = {}) {
   }
   const res = await fetch(path, { method, headers, body: payload });
   if (!res.ok) {
-    let detail = res.statusText;
+    let detail = "";
     try { detail = (await res.json()).detail; } catch (e) {}
-    throw new Error(detail);
+    throw new Error(detail || `HTTP ${res.status} ${res.statusText || ""}`.trim());
   }
   return res.json();
 }
