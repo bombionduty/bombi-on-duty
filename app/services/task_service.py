@@ -330,19 +330,55 @@ async def repost_checklist(d: date, checklist_type: str) -> dict | None:
 
 async def request_reupload_in_group(task: dict) -> None:
     """Ask the assigned staffer, in the group, to re-post a clear photo for a
-    flagged/invalid submission. The admin then places it into the checklist via
-    'Complete as admin' and verifies it — so a re-upload never silently counts as
+    flagged/invalid submission — naming the DATE and the SPECIFIC item(s) that
+    need a photo, and why. The admin then places it into the checklist via
+    'Complete as admin' and verifies it, so a re-upload never silently counts as
     original on-time proof."""
+    from app.repositories import evidence_repo
+    tid = str(task.get("Task ID") or "")
+    ct = task.get("Checklist Type") or "checklist"
+    try:
+        when = clock.fmt_date(clock.parse_date(str(task.get("Date"))))
+    except Exception:
+        when = str(task.get("Date") or "")
+
+    # Which items need a clear photo: flagged evidence (blank/duplicate) + any
+    # required proof item that wasn't submitted at all.
+    reasons: dict[str, str] = {}
+    try:
+        for e in evidence_repo.for_task(tid):
+            r = ("blank / dark" if as_bool(e.get("Blank Photo"))
+                 else "possible duplicate" if as_bool(e.get("Possible Duplicate"))
+                 else "")
+            if not r:
+                continue
+            item = task_repo.get_item(str(e.get("Task Item ID"))) or {}
+            reasons[str(item.get("Item Name") or "a checklist photo")] = r
+    except Exception:
+        pass
+    try:
+        for name in missing_items(tid):
+            reasons.setdefault(str(name), "not submitted")
+    except Exception:
+        pass
+
+    if reasons:
+        lines = "\n".join(f"   • <b>{messages.esc(n)}</b> — {messages.esc(r)}"
+                          for n, r in reasons.items())
+        detail = f"\n\n<b>Needs a clear photo:</b>\n{lines}"
+    else:
+        detail = "\n\nA photo was flagged (unclear / blank / duplicate)."
+
     mention = with_mention(task).get("_assignee_mention") \
         or messages.esc(task.get("Assigned Staff Name") or "staff")
     await notify.send_message(
         get_settings().staff_group_chat_id,
-        f"📸 <b>Photo needs re-uploading</b>\n\n{mention}, the "
-        f"{messages.esc(task.get('Checklist Type'))} photo was flagged "
-        f"(unclear / blank / duplicate). Please <b>send a clear photo here in the "
-        f"group</b> so it can be verified. 🙏")
-    if task.get("Task ID"):
-        task_repo.update(str(task["Task ID"]), {"Review Required": True})
+        f"📸 <b>Photo needs re-uploading</b>\n\n"
+        f"{mention}, your <b>{messages.esc(ct)}</b> for <b>{messages.esc(when)}</b>:"
+        f"{detail}\n\n"
+        f"👉 Please <b>send a clear photo here in the group</b> so it can be verified. 🙏")
+    if tid:
+        task_repo.update(tid, {"Review Required": True})
 
 
 async def notify_assignment_change(d: date, role: str, old_staff_id: str,

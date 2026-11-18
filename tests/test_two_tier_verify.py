@@ -76,6 +76,34 @@ async def test_request_reupload_posts_tagged_group_message(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reupload_message_names_date_and_flagged_item(monkeypatch):
+    from app.services import task_service as ts
+    sent = []
+
+    async def fake_send(chat, text, **kw):
+        sent.append(text)
+
+    monkeypatch.setattr(ts.notify, "send_message", fake_send)
+    monkeypatch.setattr(ts, "get_settings", lambda: _S())
+    monkeypatch.setattr(ts, "with_mention", lambda t: {"_assignee_mention": "@carol"})
+    monkeypatch.setattr(ts.task_repo, "update", lambda tid, ch: None)
+    monkeypatch.setattr("app.repositories.evidence_repo.for_task",
+                        lambda tid: [{"Task Item ID": "I1", "Blank Photo": True}])
+    monkeypatch.setattr(ts.task_repo, "get_item",
+                        lambda iid: {"Item Name": "Take Photo of Store after Lock-up"})
+    monkeypatch.setattr(ts, "missing_items", lambda tid: [])
+
+    await ts.request_reupload_in_group(
+        {"Task ID": "T1", "Checklist Type": "Closing Check",
+         "Date": "2026-11-18", "Assigned Staff Name": "Carol"})
+    msg = sent[0]
+    assert "Take Photo of Store after Lock-up" in msg   # specific item
+    assert "blank" in msg.lower()                        # the reason
+    assert ("2026" in msg or "Nov" in msg)              # the date
+    assert "@carol" in msg                               # tagged assignee
+
+
+@pytest.mark.asyncio
 async def test_single_tier_when_oic_is_admin(monkeypatch):
     sent = []
 
